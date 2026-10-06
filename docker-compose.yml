@@ -1,0 +1,10 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: jobcopilot-postgres
+    restart: unless-stopped
+    volumes:
+      - jobcopilot_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  jobcopilot_postgres_data:
