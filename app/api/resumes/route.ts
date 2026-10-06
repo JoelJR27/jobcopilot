@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 
+import { MAX_RESUME_SIZE } from '@/application/resume/validate-resume-file';
 import { requireAuthenticatedUser } from '@/infrastructure/auth/session/require-authenticated-user';
 import { makeUploadResume } from '@/infrastructure/composition/resume';
+import { checkResumeUploadLimit } from '@/infrastructure/http/resume-upload-limit';
 
 import { UnauthorizedError } from '@/shared/errors/unauthorized-error';
 import { ValidationError } from '@/shared/errors/validation-error';
@@ -10,7 +12,42 @@ export async function POST(request: Request) {
     try {
         const user = await requireAuthenticatedUser();
 
-        const formData = await request.formData();
+        const origin = request.headers.get('origin');
+
+        if (
+            (origin !== null && origin !== new URL(request.url).origin) ||
+            request.headers.get('sec-fetch-site') === 'cross-site'
+        ) {
+            return NextResponse.json(
+                { error: 'Origem da requisição não permitida.' },
+                { status: 403 },
+            );
+        }
+
+        const retryAfter = checkResumeUploadLimit(user.id);
+
+        if (retryAfter !== null) {
+            return NextResponse.json(
+                { error: 'Muitos envios de currículo. Tente novamente mais tarde.' },
+                { status: 429, headers: { 'Retry-After': String(retryAfter) } },
+            );
+        }
+
+        if (
+            request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !==
+            'multipart/form-data'
+        ) {
+            throw new ValidationError('Envie o currículo como multipart/form-data.');
+        }
+
+        let formData: FormData;
+
+        try {
+            formData = await request.formData();
+        } catch {
+            throw new ValidationError('O formulário de envio do currículo é inválido.');
+        }
+
         const file = formData.get('file');
 
         if (!(file instanceof File)) {
@@ -21,6 +58,13 @@ export async function POST(request: Request) {
                 {
                     status: 400,
                 },
+            );
+        }
+
+        if (file.size > MAX_RESUME_SIZE) {
+            throw new ValidationError(
+                'O currículo deve possuir no máximo 5 MB.',
+                'RESUME_FILE_TOO_LARGE',
             );
         }
 
@@ -76,7 +120,6 @@ export async function POST(request: Request) {
 
         console.error(
             'Erro inesperado ao fazer upload do currículo.',
-            error,
         );
 
         return NextResponse.json(

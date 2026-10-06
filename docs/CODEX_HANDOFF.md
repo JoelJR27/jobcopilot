@@ -15,23 +15,35 @@ Before changing code:
 
 ## Where development stopped
 
-The résumé application/storage flow is largely implemented and tested.
-
-The immediate next task is to implement and test:
+The résumé HTTP upload flow is now implemented and tested:
 
 ```text
 POST /api/resumes
 ```
 
-The intended route path is:
+The current route path is:
 
 ```text
 app/api/resumes/route.ts
 ```
 
-The endpoint must connect the existing authentication helper to the existing `UploadResume` use case.
+The endpoint connects `requireAuthenticatedUser()` to the existing `UploadResume` use case. The previous singular `app/api/resume/route.ts` was moved to this path.
 
-After that, proceed to Route Handler tests.
+Current additions:
+
+- Exported `MAX_RESUME_SIZE`; oversized files are rejected before `file.arrayBuffer()` while application validation remains in place.
+- Unsupported content types and malformed multipart bodies return controlled 400 responses.
+- Cross-origin / cross-site browser requests return 403.
+- A local per-process limit allows 10 upload attempts per authenticated user per hour; excess attempts return 429 with `Retry-After`. It resets on process restart and is not shared across instances.
+- Success returns 201 with only the public résumé metadata, never `storageKey` or `userId`.
+- Unexpected HTTP failures return a generic 500 and log a fixed message without raw infrastructure errors.
+- `tests/app/api/resumes/route.test.ts` exercises the real application use case with mocked authentication, repository and storage, without external services.
+
+Validation: 29 résumé tests passed, TypeScript and scoped ESLint passed.
+
+Next, assess which résumé read/update flows the UI requires. No additional HTTP flows, extraction, job processing or scheduler were added in this step.
+
+Sections below preserve the earlier implementation reference; sections 11–14 describe the endpoint and tests that are now completed.
 
 Do **not** jump to the GC scheduler yet.
 

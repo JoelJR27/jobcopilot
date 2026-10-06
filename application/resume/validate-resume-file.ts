@@ -1,6 +1,6 @@
 import { ValidationError } from "@/shared/errors/validation-error";
 
-const MAX_RESUME_SIZE = 5 * 1024 * 1024;
+export const MAX_RESUME_SIZE = 5 * 1024 * 1024;
 
 const PDF_MIME_TYPE = 'application/pdf';
 
