@@ -51,7 +51,7 @@ function databaseOptions(value) {
 async function neon(path, body, method = body ? 'POST' : 'GET') {
     deadline.throwIfAborted();
     const response = await fetch(`https://console.neon.tech/api/v2${path}`, { method, headers: { Authorization: `Bearer ${process.env.NEON_API_KEY}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, redirect: 'error', signal: AbortSignal.any([deadline, AbortSignal.timeout(20000)]) });
-    if (!response.ok) throw new Error('NEON_OPERATION_FAILED');
+    if (!response.ok) { log('database_backup_external_failed', { provider: 'neon', status: response.status, stage }); throw new Error('NEON_OPERATION_FAILED'); }
     if (response.status === 204) return {};
     return response.json();
 }
@@ -84,9 +84,11 @@ async function verifyRestore(dump) {
     const parent = endpoints.endpoints.find(e => e.id === source.hostname.split('.')[0]);
     if (!parent || parent.branch_id !== 'br-weathered-cloud-b60xgn2w') throw new Error('PRODUCTION_IDENTITY_MISMATCH');
     const branches = await neon(`${project}/branches`);
-    if (branches.branches.length >= 10) throw new Error('BRANCH_QUOTA');
+    const disposable = branches.branches.find(b => b.id !== parent.branch_id && /^backup-restore-test-[0-9a-f]{8}$/.test(b.name) && b.init_source === 'parent-schema' && b.current_state === 'ready');
+    if (!disposable && branches.branches.length >= 10) throw new Error('BRANCH_QUOTA');
     const baseline = await signature(source.href);
-    const branch = await neon(`${project}/branches`, { branch: { name: `backup-restore-test-${randomUUID().slice(0, 8)}`, parent_id: parent.branch_id, init_source: 'schema-only' }, endpoints: [{ type: 'read_write' }] });
+    // Reuse only a workflow-named disposable schema copy left by a failed run.
+    const branch = disposable ? { branch: disposable } : await neon(`${project}/branches`, { branch: { name: `backup-restore-test-${randomUUID().slice(0, 8)}`, parent_id: parent.branch_id, init_source: 'schema-only' }, endpoints: [{ type: 'read_write' }] });
     restoredBranch = branch.branch.id;
     // Neon schema-only copies are independent roots (init_source=parent-schema).
     if (restoredBranch === parent.branch_id || branch.branch.init_source !== 'parent-schema') throw new Error('RESTORE_ISOLATION_FAILED');
