@@ -22,11 +22,17 @@ async function postgresTool(tool, database, input) {
     try {
         return await new Promise((resolve, reject) => {
             const child = spawn('docker', args, { env: { ...process.env, ...environment }, shell: false, windowsHide: true, signal: deadline, timeout: 180000 });
-            const chunks = []; let size = 0; let exceeded = false;
+            const chunks = []; let size = 0; let exceeded = false; let diagnostic = '';
             child.stdout.on('data', chunk => { size += chunk.length; if (size > MAX_DUMP_BYTES) { exceeded = true; child.kill(); } else chunks.push(chunk); });
-            child.stderr.resume(); // Never forward pg/docker raw errors, names or connection details.
+            child.stderr.on('data', chunk => { if (diagnostic.length < 16384) diagnostic += chunk.toString(); });
             child.on('error', () => reject(new Error('POSTGRES_TOOL_FAILED')));
-            child.on('close', code => code === 0 && !exceeded ? resolve(Buffer.concat(chunks)) : reject(new Error('POSTGRES_TOOL_FAILED')));
+            child.on('close', code => {
+                if (code === 0 && !exceeded) return resolve(Buffer.concat(chunks));
+                const categories = [[/certificate|root\.crt|SSL error/i, 'TLS'], [/authentication failed|password/i, 'AUTH'], [/version mismatch|server version/i, 'VERSION'], [/rate limit|toomanyrequests/i, 'IMAGE_QUOTA'], [/could not translate|connection refused|timeout/i, 'CONNECTION'], [/manifest unknown|not found/i, 'IMAGE_OR_EXECUTABLE']];
+                const category = exceeded ? 'SIZE_LIMIT' : categories.find(([pattern]) => pattern.test(diagnostic))?.[1] ?? 'TOOL_FAILURE';
+                log('database_backup_tool_failed', { tool, category, exitCode: code });
+                reject(new Error('POSTGRES_TOOL_FAILED'));
+            });
             child.stdin.on('error', () => {});
             child.stdin.end(input);
         });
