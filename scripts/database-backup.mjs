@@ -17,7 +17,7 @@ let restoredBranch;
 async function postgresTool(tool, database, input) {
     const environment = postgresEnvironment(database);
     const name = `jobcopilot-backup-${randomUUID()}`;
-    const args = ['run', '--rm', '--name', name, '-i', ...Object.keys(environment).flatMap(k => ['-e', k]), IMAGE, tool,
+    const args = ['run', '--rm', '--name', name, '-i', '--mount', 'type=bind,source=/etc/ssl/certs/ca-certificates.crt,target=/etc/ssl/certs/ca-certificates.crt,readonly', ...Object.keys(environment).flatMap(k => ['-e', k]), IMAGE, tool,
         ...(tool === 'pg_dump' ? ['--format=custom', '--no-owner', '--no-privileges'] : ['--dbname', environment.PGDATABASE, '--exit-on-error', '--no-owner', '--no-privileges'])];
     try {
         return await new Promise((resolve, reject) => {
@@ -28,7 +28,7 @@ async function postgresTool(tool, database, input) {
             child.on('error', () => reject(new Error('POSTGRES_TOOL_FAILED')));
             child.on('close', code => {
                 if (code === 0 && !exceeded) return resolve(Buffer.concat(chunks));
-                const categories = [[/certificate|root\.crt|SSL error/i, 'TLS'], [/authentication failed|password/i, 'AUTH'], [/version mismatch|server version/i, 'VERSION'], [/rate limit|toomanyrequests/i, 'IMAGE_QUOTA'], [/could not translate|connection refused|timeout/i, 'CONNECTION'], [/manifest unknown|not found/i, 'IMAGE_OR_EXECUTABLE']];
+                const categories = [[/root certificate file.*does not exist/i, 'TLS_CA_MISSING'], [/certificate verify failed/i, 'TLS_CA_REJECTED'], [/does not match host/i, 'TLS_HOSTNAME'], [/certificate|root\.crt|SSL error/i, 'TLS'], [/authentication failed|password/i, 'AUTH'], [/version mismatch|server version/i, 'VERSION'], [/rate limit|toomanyrequests/i, 'IMAGE_QUOTA'], [/could not translate|connection refused|timeout/i, 'CONNECTION'], [/manifest unknown|not found/i, 'IMAGE_OR_EXECUTABLE']];
                 const category = exceeded ? 'SIZE_LIMIT' : categories.find(([pattern]) => pattern.test(diagnostic))?.[1] ?? 'TOOL_FAILURE';
                 log('database_backup_tool_failed', { tool, category, exitCode: code });
                 reject(new Error('POSTGRES_TOOL_FAILED'));
