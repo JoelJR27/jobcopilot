@@ -19,7 +19,7 @@ async function postgresTool(tool, database, input) {
     const environment = postgresEnvironment(database);
     const name = `jobcopilot-backup-${randomUUID()}`;
     const args = ['run', '--rm', '--name', name, '-i', '--mount', 'type=bind,source=/etc/ssl/certs/ca-certificates.crt,target=/etc/ssl/certs/ca-certificates.crt,readonly', ...Object.keys(environment).flatMap(k => ['-e', k]), IMAGE, tool,
-        ...(tool === 'pg_dump' ? ['--format=custom', '--no-owner', '--no-privileges'] : ['--dbname', environment.PGDATABASE, '--exit-on-error', '--no-owner', '--no-privileges'])];
+        ...(tool === 'pg_dump' ? ['--format=custom', '--schema=public', '--no-owner', '--no-privileges'] : ['--dbname', environment.PGDATABASE, '--clean', '--if-exists', '--exit-on-error', '--no-owner', '--no-privileges'])];
     try {
         return await new Promise((resolve, reject) => {
             const child = spawn('docker', args, { env: { ...process.env, ...environment }, shell: false, windowsHide: true, signal: deadline, timeout: 180000 });
@@ -29,7 +29,7 @@ async function postgresTool(tool, database, input) {
             child.on('error', () => reject(new Error('POSTGRES_TOOL_FAILED')));
             child.on('close', code => {
                 if (code === 0 && !exceeded) return resolve(Buffer.concat(chunks));
-                const categories = [[/root certificate file.*does not exist/i, 'TLS_CA_MISSING'], [/certificate verify failed/i, 'TLS_CA_REJECTED'], [/does not match host/i, 'TLS_HOSTNAME'], [/certificate|root\.crt|SSL error/i, 'TLS'], [/authentication failed|password/i, 'AUTH'], [/version mismatch|server version/i, 'VERSION'], [/rate limit|toomanyrequests/i, 'IMAGE_QUOTA'], [/could not translate|connection refused|timeout/i, 'CONNECTION'], [/manifest unknown|not found/i, 'IMAGE_OR_EXECUTABLE']];
+                const categories = [[/root certificate file.*does not exist/i, 'TLS_CA_MISSING'], [/certificate verify failed/i, 'TLS_CA_REJECTED'], [/does not match host/i, 'TLS_HOSTNAME'], [/certificate|root\.crt|SSL error/i, 'TLS'], [/schema .*does not exist/i, 'SCHEMA_MISSING'], [/schema .*already exists/i, 'SCHEMA_EXISTS'], [/permission denied/i, 'PERMISSION'], [/authentication failed|password/i, 'AUTH'], [/version mismatch|server version/i, 'VERSION'], [/rate limit|toomanyrequests/i, 'IMAGE_QUOTA'], [/could not translate|connection refused|timeout/i, 'CONNECTION'], [/manifest unknown|not found/i, 'IMAGE_OR_EXECUTABLE']];
                 const category = exceeded ? 'SIZE_LIMIT' : categories.find(([pattern]) => pattern.test(diagnostic))?.[1] ?? 'TOOL_FAILURE';
                 log('database_backup_tool_failed', { tool, category, exitCode: code });
                 reject(new Error('POSTGRES_TOOL_FAILED'));
@@ -96,7 +96,7 @@ async function verifyRestore(dump) {
     target.hostname = target.hostname.replace(/-pooler(?=\.)/, '');
     // Schema-only clone is not empty: remove only its cloned public schema before restore.
     const isolated = new pg.Client(databaseOptions(target.href)); isolated.on('error', () => {});
-    try { await isolated.connect(); await isolated.query('DROP SCHEMA public CASCADE'); } finally { await isolated.end(); }
+    try { await isolated.connect(); await isolated.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public'); } finally { await isolated.end(); }
     stage = 'pg_restore';
     await postgresTool('pg_restore', target.href, dump);
     const restoredClient = new pg.Client(databaseOptions(target.href)); restoredClient.on('error', () => {});
