@@ -87,16 +87,19 @@ async function verifyRestore(dump) {
     const baseline = await signature(source.href);
     const branch = await neon(`${project}/branches`, { branch: { name: `backup-restore-test-${randomUUID().slice(0, 8)}`, parent_id: parent.branch_id, init_source: 'schema-only' }, endpoints: [{ type: 'read_write' }] });
     restoredBranch = branch.branch.id;
-    if (restoredBranch === parent.branch_id || branch.branch.parent_id !== parent.branch_id) throw new Error('RESTORE_ISOLATION_FAILED');
+    // Neon schema-only copies are independent roots (init_source=parent-schema).
+    if (restoredBranch === parent.branch_id || branch.branch.init_source !== 'parent-schema') throw new Error('RESTORE_ISOLATION_FAILED');
     const uri = await neon(`${project}/connection_uri?branch_id=${encodeURIComponent(restoredBranch)}&database_name=${encodeURIComponent(decodeURIComponent(source.pathname.slice(1)))}&role_name=${encodeURIComponent(decodeURIComponent(source.username))}`);
     const target = new URL(uri.uri);
     if (target.hostname === source.hostname || target.hostname.replace(/-pooler(?=\.)/, '') === source.hostname || !target.hostname.endsWith('.neon.tech')) throw new Error('RESTORE_ISOLATION_FAILED');
     target.hostname = target.hostname.replace(/-pooler(?=\.)/, '');
     // Schema-only clone is not empty: remove only its cloned public schema before restore.
     const isolated = new pg.Client(databaseOptions(target.href)); isolated.on('error', () => {});
-    try { await isolated.connect(); await isolated.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public'); } finally { await isolated.end(); }
+    try { await isolated.connect(); await isolated.query('DROP SCHEMA public CASCADE'); } finally { await isolated.end(); }
     stage = 'pg_restore';
     await postgresTool('pg_restore', target.href, dump);
+    const restoredClient = new pg.Client(databaseOptions(target.href)); restoredClient.on('error', () => {});
+    try { await restoredClient.connect(); await restoredClient.query('CREATE SCHEMA IF NOT EXISTS public'); } finally { await restoredClient.end(); }
     stage = 'restore_validation';
     const restored = await signature(target.href);
     if (JSON.stringify(baseline) !== JSON.stringify(restored)) throw new Error('RESTORE_COUNTS_MISMATCH');
