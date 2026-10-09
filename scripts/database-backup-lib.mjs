@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const MAX_DUMP_BYTES = 64 * 1024 * 1024;
-export const MAX_STORAGE_BYTES = 512 * 1024 * 1024;
+export const MAX_STORAGE_BYTES = 768 * 1024 * 1024;
 export const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 export const PREFIX = 'database-backups/';
 const MAGIC = Buffer.from('JCBACK01');

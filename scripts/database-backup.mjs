@@ -6,7 +6,8 @@ import { MAX_DUMP_BYTES, MAX_STORAGE_BYTES, PREFIX, checksum, encryptionKey, enc
 
 const IMAGE = 'postgres:18@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336';
 const started = Date.now();
-const deadline = AbortSignal.timeout(12 * 60 * 1000);
+const lockLost = new AbortController();
+const deadline = AbortSignal.any([AbortSignal.timeout(12 * 60 * 1000), lockLost.signal]);
 const log = (event, fields = {}) => console.info(JSON.stringify({ event, ...fields }));
 let stage = 'configuration';
 let lock;
@@ -117,7 +118,7 @@ try {
     if (endpoint.protocol !== 'https:' || !/^s3\.[a-z0-9-]+\.backblazeb2\.com$/.test(endpoint.hostname) || endpoint.username || endpoint.password) throw new Error('STORAGE_ENDPOINT_INVALID');
     if (!process.env.BACKUP_B2_BUCKET?.startsWith('jobcopilot-db-backups-')) throw new Error('BUCKET_INVALID');
     if (!process.env.BACKUP_B2_KEY_ID || !process.env.BACKUP_B2_APPLICATION_KEY) throw new Error('STORAGE_CREDENTIALS_MISSING');
-    lock = new pg.Client(databaseOptions(url)); lock.on('error', () => { process.exitCode = 1; });
+    lock = new pg.Client(databaseOptions(url)); lock.on('error', () => { lockLost.abort(); process.exitCode = 1; });
     await lock.connect();
     acquired = (await lock.query('SELECT pg_try_advisory_lock(742911, 4) AS acquired')).rows[0].acquired;
     if (!acquired) throw new Error('BACKUP_BUSY');
@@ -127,7 +128,7 @@ try {
     const send = command => { deadline.throwIfAborted(); return s3.send(command, { abortSignal: deadline }); };
     stage = 'private_storage';
     const acl = await send(new GetBucketAclCommand({ Bucket: bucket }));
-    if (acl.Grants?.some(g => g.Grantee?.Type === 'Group')) throw new Error('BUCKET_NOT_PRIVATE');
+    if (!acl.Owner?.ID || !acl.Grants?.length || acl.Grants.some(g => g.Grantee?.Type !== 'CanonicalUser' || g.Grantee.ID !== acl.Owner.ID)) throw new Error('BUCKET_NOT_PRIVATE');
     stage = 'inventory';
     const inventory = await send(new ListObjectVersionsCommand({ Bucket: bucket, Prefix: PREFIX, MaxKeys: 1000 }));
     if (inventory.IsTruncated) throw new Error('INVENTORY_LIMIT');
@@ -143,6 +144,8 @@ try {
         if (existing.Metadata?.sha256 !== checksum(encrypted).toString('hex')) throw new Error('CHECKSUM_INVALID');
         decryptDump(encrypted, key); replay = true;
     } catch (error) { if (error?.name !== 'NoSuchKey') throw error; }
+    // Manual restore verification takes a fresh snapshot; previous versions remain retained.
+    if (process.env.BACKUP_VERIFY_RESTORE === 'true') replay = false;
     if (!replay) {
         stage = 'pg_dump';
         const dump = await postgresTool('pg_dump', url);
