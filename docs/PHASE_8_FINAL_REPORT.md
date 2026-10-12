@@ -1,5 +1,7 @@
 # Fase 8 — blockers operacionais de ativação
 
+> Relatório histórico de 2026-10-08. O estado atual de ativação foi atualizado em [PHASE_8_RELEASE_REPORT.md](PHASE_8_RELEASE_REPORT.md) e [BACKEND_PRODUCTION_CHECKLIST.md](BACKEND_PRODUCTION_CHECKLIST.md); não usar os blockers abaixo como estado atual.
+
 2026-10-08 — **BACKEND PRODUCTION BLOCKED**.
 
 Nenhuma feature, contrato HTTP, arquitetura, matching, collector ou frontend foi alterado. Migrations, seed, deploy, smoke HTTPS e crons não foram executados: a retenção de backup obrigatória permanece não atendida. Somente este relatório e BACKEND_PRODUCTION_CHECKLIST.md foram alterados nesta continuação; alterações anteriores do working tree foram preservadas.

@@ -1,72 +1,55 @@
-# Checklist de produção do backend
+# Checklist autoritativo de produção do backend
 
-Fase 8, 2026-10-08. **BACKEND PRODUCTION BLOCKED**. Projeto Vercel vinculado e envs Production configuradas; nova key B2 validada e env gate exit 0. **Deploy e cron Vercel ainda não ativos/verificados**. Neon Free: retenção configurada 6h, abaixo de 7 dias; cópia histórica isolada do banco vazio validada, sem restore sobre Production. Evidências atuais em [PHASE_8_FINAL_REPORT.md](PHASE_8_FINAL_REPORT.md); histórico em [PHASE_8_PRODUCTION_ACTIVATION_REPORT.md](PHASE_8_PRODUCTION_ACTIVATION_REPORT.md). Não abrir produção enquanto itens operacionais abaixo estiverem pendentes.
+Atualizado em **2026-10-12**, alpha **pessoal/não comercial** autorizado no Vercel Hobby. Evidências: [PHASE_8_RELEASE_REPORT.md](PHASE_8_RELEASE_REPORT.md). Relatórios de 8 de outubro são históricos.
 
-## Evidências verificadas da ativação
+## Plataforma, envs e secrets
 
-- [x] CLI Vercel autenticada; projeto JobCopilot criado/vinculado localmente. Node 24, `pnpm build` e install `pnpm install --frozen-lockfile && pnpm db:generate` configurados remotamente. Integração Git/release e região continuam pendentes.
-- [x] As 14 envs configuradas têm somente target Production; secrets usam tipo sensitive. Nenhuma env SEED_ADMIN está no projeto. COREPACK habilitado. Gate final na sessão segura com a nova key: exit 0, valid=true, invalidFields vazio.
-- [x] Neon pooled e direct: conexão TLS 1.3 com certificado validado. Banco de destino vazio, zero tabelas públicas e nenhuma migration aplicada. Nenhuma migration/seed executada nesta ativação.
-- [x] B2: substituta restrita ao bucket com somente listBuckets/readBuckets/listFiles/readFiles/writeFiles/deleteFiles, armazenada em Vercel Production após validar upload/get/delete/listVersions/deleteVersion, ACL privada e anonymous access negado. Objeto sintético sem versões remanescentes. Nenhuma key anterior revogada.
-- [x] API Neon confirmou endpoint/branch de Production, organização Free e history_retention_seconds=21600 (6h). Cópia histórica isolada production-restore-verification-20261008 validada por leitura/TLS, com zero tabelas públicas e sem escrita no original. Branch de teste preservada; isso não comprova recuperação de dados futuros nem retenção de 7 dias.
-- [x] Inventário read-only do bucket configurado: zero versões sob resumes/, zero candidatas com mais de 24h, listagem completa de uma página; nenhuma exclusão. Consulta usou credencial anterior do operador, não foi teste de GC Production.
-- [x] Gates locais: geração/validação Prisma, 436 testes (PostgreSQL local isolado e B2 sintético), typecheck, lint, build, exposição, scanner de secrets e diff check passaram. Audit permanece exatamente nos três advisories CLI documentados.
-- [x] Nenhuma .env versionada; scanner de working tree e três commits recentes sem possível segredo encontrado. `.vitest/` ignorado para impedir inclusão do relatório local gerado.
-- [ ] Backup com retenção ≥7 dias e restore isolado testado da estratégia final. PITR Free de 6h não substitui o requisito; pg_dump diário criptografado em host/destino privado já disponíveis é alternativa proposta, ainda não configurada.
-- [ ] Deployment/artefato remoto/smoke HTTPS/rate limiter distribuído/crons reais. Domínio reservado não equivale a aplicação validada.
+- [x] Repositório JoelJR27/jobcopilot vinculado; snapshot validado publicado, preservando HEAD/working tree local. Release Git Production READY, Node24/pnpm11.13.1/gru1. HTTPS: https://jobcopilot-zeta.vercel.app.
+- [x] Uso pessoal/não comercial confirmado; nenhum serviço/plano pago contratado.
+- [x] 14 envs somente Production: DATABASE_URL, DIRECT_DATABASE_URL, APP_URL, RATE_LIMIT_MODE, RATE_LIMIT_KEY_SECRET, CRON_SECRET, INTERNAL_JOBS_SECRET, seis campos B2 e ENABLE_EXPERIMENTAL_COREPACK. RATE_LIMIT_MODE=postgres; nenhum NEXT_PUBLIC nem SEED_ADMIN no runtime.
+- [x] Secrets cron iguais e distintos da key do limiter, server-only. Env gate remoto exit0/valid=true, sem flexibilizar validator.
+- [x] .env ignorada; .env.example com15 valores vazios; .vercelignore exclui envs/builds/dependências/gerados locais. Scanner working tree e5 commits recentes, incluindo release remoto após fetch: nenhum achado. Sem valores de credentials em Git/logs/argumentos.
 
-Os itens compostos abaixo permanecem abertos quando parte deles ainda não foi verificada.
+## PostgreSQL, backup e storage
 
-## 1. Plataforma e envs
+- [x] Neon Free/PITR6h real, complementado por backup externo; não descrito como retenção Neon7dias. Conexões pooled runtime e direct/session para locks, mesmo banco; credencial de migrations/backup do operador separada.
+- [x] Socket cliente com TLSv1.3/certificado autorizado e rejectUnauthorized:true. pg_stat_ssl atrás do proxy Neon não comprova TLS cliente. Sem bypass de certificado.
+- [x] Runtime sem superuser/createdb/createrole/bypassrls/schema CREATE/migrations UPDATE; DML nas tabelas da aplicação. Pool2/instância, connect/statement5s, idle10s e locks diretos separados revisados; reservar conexões administrativas.
+- [x] Backup/restore passou **antes** das migrations: cópia inicial vazia e posterior restore13 tabelas/5 migrations. Estratégia final GitHub Actions persistente + bucket B2 privado separado; custom-format/AES-GCM/checksum, arquivos datados/versões retidos >7dias e rotação automática. [Runbook](BACKUP_SETUP.md).
+- [x] Backups automáticos diários reais em9–12/10. Incidente25h49 documentado. Watchdog horário autorizado/publicado:23 * * * *, refresh23h, manifesto HMAC; backup/restore e replay fresco passaram no runner real. **RPO≤24h é alvo monitorado, não SLA**: scheduler best-effort explicitamente aceito. Acompanhar primeiro evento schedule da nova cadência, sem confundir dispatch com execução automática.
+- [x] Quotas/termos consultados: GitHub runner padrão em repo público; B2 primeiros10 GB por conta, compartilhados. Limites64 MiB/dump,768 MiB/bucket/1000versões; operador confirmou caps US$0. Falha/quota/atraso são incidentes, sem upgrade automático.
+- [x] db:generate, Prisma validate, migrate deploy/status passaram;5/5 migrations, schema up-to-date. Nunca migrate dev/reset/db push em Production.
+- [x] ADMIN bootstrap manual/role confirmados; seed envs somente no processo manual, ausentes no runtime; sem senha/hash registrados.
+- [x] Key Production exclusiva/restrita ao bucket privado de currículos: upload/get/delete/listVersions/deleteVersion sintéticos passaram, anonymous negado/ACL privada. Key de backup separada e restrita ao bucket/prefixo próprios.
+- [x] Keys antigas identificadas; operador decidiu **manter e revisar manualmente**. Duas tentativas Production antigas e key ampla local não são usadas pelo runtime/backup. Nenhuma revogação executada.
 
-- [ ] Vincular o repositório ao projeto Vercel; selecionar Node 24, pnpm 11 e região próxima ao PostgreSQL.
-- [ ] Confirmar que o uso pretendido é permitido pelo plano escolhido. Hobby é pessoal/não comercial; não presumir contratação paga nem cobertura comercial gratuita.
-- [x] Configurar **Production** server-only `DATABASE_URL`, `DIRECT_DATABASE_URL`, `APP_URL`, `RATE_LIMIT_MODE=postgres`, `RATE_LIMIT_KEY_SECRET`, `CRON_SECRET`, `INTERNAL_JOBS_SECRET` e envs B2.
-- [ ] DATABASE_URL: conexão runtime PostgreSQL, preferencialmente pooler transaction mode compatível com Prisma 7/pg. DIRECT_DATABASE_URL: conexão direta/session mode para advisory locks e migrations, mesmo banco/schema público. Não usar transaction pooler para lock de sessão.
-- [ ] APP_URL HTTPS público. RATE_LIMIT_KEY_SECRET aleatório 32..256 caracteres. CRON_SECRET e INTERNAL_JOBS_SECRET aleatórios 32..256 e **iguais**; diferentes da key do limiter. Gerar e armazenar fora de código/chat/logs.
-- [x] B2_ENDPOINT HTTPS, B2_REGION, B2_KEY_ID, B2_KEY_NAME, B2_APPLICATION_KEY e B2_BUCKET_NAME. Bucket privado e key restrita ao bucket; incluir permissões necessárias para listar/excluir versões na manutenção, sem acesso a outros buckets.
-- [ ] Rotacionar as keys B2 identificadas na `.env` local antes do deploy, sem publicar seus valores; usar credenciais distintas de dev/test e produção. `.env` está ignorada, sem exposição identificada em commits, mas não deve ser enviada como artefato.
-- [ ] Nenhum secret em NEXT_PUBLIC. `.env.example` apenas campos vazios. Preview/Development devem usar banco/bucket próprios e nunca secrets/dados privados Production.
-- [x] Executar `pnpm backend:env` com envs de produção em ambiente seguro: saída somente nomes inválidos. Exit 0 é requisito, não prova conectividade/TLS/ACL.
+## Gates, contratos e smoke
 
-**Separação:** runtime usa DB/B2/rate limiter; cron acrescenta conexão direta e os dois secrets operacionais. Providers CI&T/Swile/Arbeitnow têm configuração allowlisted server-side, sem API key. Seed usa SEED_ADMIN_EMAIL/SEED_ADMIN_PASSWORD **somente no bootstrap manual**; não deixar essas envs no runtime. Build usa Prisma schema/config/Next; geração não precisa conectar ao banco, e nenhum secret deve ser incorporado a assets do browser. Migrações precisam da conexão direta. NODE_ENV/VERCEL são metadados da plataforma; JOBCOPILOT_DB_TESTS é exclusivamente teste local opt-in.
+- [x] Suite410 passaram +35integrações opt-in em7 suites PostgreSQL locais/schema temporário =445 testes. Provider mocks e B2 sintético incluídos; sem testes sobre contas reais.
+- [x] Typecheck sem incremental, lint, pnpm build, backend:exposure, scanner e diff check passaram.
+- [x] Audit exit1 **exatamente**3advisories CLI documentados,2 altos/1 moderado/0críticos; nenhum novo advisory runtime aceito. [Exposição](DEPENDENCY_EXPOSURE_REPORT.md).
+- [x] Build remoto: pnpm backend:env && pnpm build && pnpm backend:exposure. finalize-build executado. Manifests/standalone gerados na Vercel:22 traces/551 paths/1637 arquivos, zero envs/secrets embutidos/pacotes documentados. Sem next build direto.
+- [x] Artefato remoto inspecionado dentro do build real; API de files indisponível no deployment Git e ZIP final das lambdas não baixado. Prova de exposição usa manifests/standalone reais da Vercel, não suposição do build local.
+- [x] Smoke HTTPS no release Git, USER A/USER B/ADMIN sintéticos: register/login/logout/me, PDF/DOCX, Profile/Preferences, onboarding/jobs/feedback, admin/toggle. USER→admin403; cross-user bloqueado inclusive ADMIN→feedback terceiro404; userId forjado não controla ownership. Fixtures removidas.
+- [x] Cookie HttpOnly/Secure/SameSite=Lax/path/, no-store, origem cruzada403 e DTO sem storageKey/hash/token/stack verificados. Headers HTTPS nosniff/DENY/HSTS/CSP confirmados. Cadastro idempotente/erro genérico/validação também cobertos por contratos isolados.
+- [x] Bug Vercel4,5MB: cap **HTTP4 MiB**, explicitamente autorizado; domínio5 MiB/compensação B2/DB preservados. HTTPS4 MiB201 e4 MiB+1=400 controlado. Acima do limite da plataforma pode haver413 antes do handler.
+- [x] Limiter PostgreSQL: duas sessões compartilham429/Retry-After, buckets confirmados. DB inacessível em servidor Production **isolado** retorna503/no-store sem fallback; banco real não desligado.
 
-## 2. Banco, migrations e storage
+## Crons, dados e observabilidade
 
-- [ ] Provisionar/revisar o PostgreSQL existente, sem troca automática de provider. TLS remoto verifica certificados (`rejectUnauthorized: true`); nunca desativar verificação. Se o provider exigir CA privada, provisionar CA corretamente antes de liberar, sem fallback inseguro.
-- [ ] Conferir limites de conexão: pool runtime **2 por instância**, connect/statement timeout **5s**, idle **10s**; pipeline cria outro pool2 e uma conexão direta de lock; GC usa uma conexão direta própria. Multiplicar pelos processos/instâncias concorrentes e reservar conexões para administração/migrations. Pooler externo não torna conexões ilimitadas.
-- [ ] Credencial runtime com mínimo privilégio para tabelas de aplicação/limiter/checkpoint; credencial de migrations separada quando o provider permitir. Apenas operador pode alterar envs/fontes configuradas.
-- [ ] Backup automático/encriptado antes de migration: meta inicial RPO≤24h, retenção≥7 dias e restauração testada em banco isolado. Confirmar capacidades/quota gratuitas do provider; backup não está configurado por este código.
-- [ ] `pnpm db:generate`; `pnpm exec prisma validate --config prisma7.config.ts`; `pnpm exec prisma migrate deploy --config prisma7.config.ts`; `pnpm exec prisma migrate status --config prisma7.config.ts`. Nunca migrate dev/reset no banco de produção.
-- [ ] Cinco migrations aplicadas, incluindo `20261007020000_backend_readiness`. A migration é aditiva e dá janela inicial aos Jobs antigos; não apaga Jobs/feedback.
-- [ ] Bootstrap admin manual via `pnpm db:seed`, sem senha padrão ou hardcode. Remover envs de seed após executar. ADMIN continua com Profile/Preferences/jobs próprios.
-- [x] Verificar privacidade/ACL/policy B2 no destino e testar somente objeto sintético com prefixo de teste, incluindo deleteVersion. Nunca publicar storageKey ou URL pública de currículo.
+- [x] Vercel crons registrados/ativos: jobs GET /api/internal/jobs/run,0 6 * * *; GC GET /api/internal/resumes/gc,0 7 * * *. Hobby pode atrasar dentro da hora; uso/quotas respeitados.
+- [x] Operador executou ambos pelo botão Run; completed aprovados comprovaram Bearer automático. Sem auth401; cookie/role/USER/ADMIN não autorizam cron. Replay protegido passou.
+- [x] Fluid Compute confirmado; jobs300s/deadline240s,GC60s/deadline45s. Locks diretos independentes. Jobs409 ocupado comprovado em Production sem coleta concorrente;429/503/parcial cobertos nos contratos isolados.
+- [x] CI&T/Swile/Arbeitnow separadas por JobSource; Brasil-first/dedupe/lifecycle preservados. Último smoke:228 CI&T/33 Swile/1462 Arbeitnow,1723 jobs históricos. Replay sem duplicação; active/lastSeenAt conferidos. Ausência/falha não apaga histórico/feedback.
+- [x] GC executado somente após conferir DB/bucket/referências/ACL/24h:7versões/3referências/0 candidatas antigas no smoke, nenhuma exclusão inesperada. Limpeza final apenas contas/versões sintéticas próprias.
+- [x] Logs reais started/completed/sources/counters/durationMs/partial/timedOut revisados; sem PII, secrets, descrições integrais ou errors raw. Falha GC não aborta jobs; checkpoint/replay/parcial cobertos isoladamente.
 
-## 3. Gates e contratos
+## Obrigações recorrentes e limites aceitos do alpha
 
-- [ ] `pnpm test` (unidades/provider mocks). Para integrações PostgreSQL: banco **local** e `JOBCOPILOT_DB_TESTS=1`; schemas test_backend_* temporários. B2 atual tem integração real com objetos sintéticos; executar controladamente, sem apontar testes para contas reais.
-- [ ] `pnpm exec tsc --noEmit --incremental false`; `pnpm lint`; `pnpm build`; `pnpm audit --prod`; `pnpm backend:exposure`; `node scripts/check-repository-secrets.mjs`; `git diff --check`.
-- [ ] Audit pode retornar exit1 **somente pelos três avisos CLI documentados** em [DEPENDENCY_EXPOSURE_REPORT.md](DEPENDENCY_EXPOSURE_REPORT.md). Nenhum crítico/alto de runtime é aceito. Conferir empacotamento real Vercel novamente.
-- [ ] Usar o Build Command `pnpm build` sem bypass da finalização: Next standalone copia envs locais por padrão; finalize-build remove somente `.env*` do artefato gerado. `pnpm backend:exposure` também recusa arquivos env e valores de secrets locais encontrados em JS/JSON/HTML. Não publicar build feito com `next build` direto sem esses gates.
-- [ ] Smoke no deployment com contas sintéticas isoladas: register/login/logout, PDF/DOCX, Profile/Preferences, jobs/feedback próprio, ADMIN métricas, cross-user, cron sem auth. Não usar contas/dados de usuários reais para teste.
-- [ ] Verificar no-store em APIs autenticadas/erros, cookies HttpOnly/Secure/SameSite=Lax, headers nosniff/DENY/HSTS/CSP existente, origem cruzada 403, erro inesperado genérico. Testar HTTPS real/certificados no destino.
-- [ ] Confirmar respostas públicas de cadastro iguais para email novo/existente; registro não altera senha/role existente. Login não publica sessão/hash; token somente cookie HttpOnly.
+Revisar diariamente idade do backup e logs dos três schedulers. GitHub pode atrasar/descartar schedules e desativá-los após60dias sem atividade; ausência/falha/idade≥24h é incidente. O watchdog reduz risco, não dá garantia contratual de RPO. A retenção foi testada; ainda não havia7dias de arquivos reais para comprovar exclusão antiga.
 
-## 4. Crons e observabilidade
+Proteger acesso aos secrets/cofre e testar restore periodicamente; revisão manual das keys antigas, sem revogação autorizada. Preview/Development não recebem secrets Production. Monitorar quotas, conexões e matching O(usuários×vagas) antes de ampliar público. Email recovery/verification, alertas externos e frontend production readiness estão fora desta ativação.
 
-- [ ] Verificar `vercel.json`: jobs `0 6 * * *` (**03h Brasília**) e GC `0 7 * * *` (**04h Brasília**), ambos GET uma vez/dia e independentes. Confirmar quota/plano; Hobby pode atrasar dentro da hora e não garante minuto exato.
-- [ ] Jobs GET `/api/internal/jobs/run`: maxDuration300, deadline global240s. GC GET `/api/internal/resumes/gc`: maxDuration60, deadline45s. Confirmar Fluid Compute/duração efetiva do projeto e margem operacional.
-- [ ] Vercel envia Authorization Bearer com CRON_SECRET. Nunca query string/cookie/role/user-agent como autorização. GET exige secrets iguais; POST operacional usa INTERNAL_JOBS_SECRET. Usuários/ADMIN comuns não têm trigger do pipeline.
-- [ ] Fazer deploy Production, confirmar **os dois crons no dashboard**, executar uma vez de forma protegida e conferir logs. Só então registrar scheduler ativo. Não executar GC do bucket real antes de conferir banco correto/ACL/janela24h.
-- [ ] Validar lock409 sem operação concorrente, 429 com Retry-After (5 chamadas/10min por trigger), 503 parcial/indisponível, 200 sucesso. Pipeline/GC têm locks distintos e não se bloqueiam. Falha GC não aborta jobs.
-- [ ] Verificar `job_pipeline_started/completed/busy/failed` e `resume_gc_started/completed/busy/failed`, duração/counters/partial/timedOut. Há contagens, não PII, descrições, tokens ou exceptions raw.
-- [ ] Para falha parcial/interrupção: investigar evento sanitizado, repetir via POST Bearer ou `pnpm jobs:run` após Retry-After. Checkpoint retoma último lote confirmado; unique/upserts mantêm idempotência. Scheduler não faz retry automático implementado pelo projeto.
-- [ ] Revisar logs diariamente no alpha; ausência de completed após started ou cron esperado é incidente. Não há alertas externos pagos, histórico completo de runs ou checkpoint exposto a ADMIN.
+Arquitetura/features backend congeladas. Não iniciar frontend/LLM/auto-apply automaticamente.
 
-## Limitações conhecidas
-
-Rate limiter PostgreSQL é distribuído/global entre instâncias da mesma base, com HMAC e teto10mil buckets; indisponibilidade do banco falha fechado503. Modo local tem teto2mil e fica apenas em dev/test. Não usa IP/header do cliente. Limites globais conservadores podem causar indisponibilidade sob abuso; avaliar WAF nativo gratuito como defesa adicional respeitando quota/termos, sem ativar cobrança implicitamente.
-
-Jobs desaparecidos são desativados após **14 dias sem observação**, exclusivamente após coleta completa válida daquela fonte; erro externo não expira. Após **30 dias sem observação**, leitura/matching já ocultam mesmo se a fonte falha permanentemente. Não implica confirmação de vaga fechada. Histórico e feedback permanecem; reobservação atualiza/reativa a mesma row.
-
-Throughput local não representa latência do PostgreSQL remoto. Validar volume no destino antes de aumentar público; matching continua O(usuários×vagas), mas em lotes100/50 e com checkpoint. Full CSP com nonce, recuperação/verificação de email, UX de auth e browser end-to-end são dívidas explícitas; frontend e LLM não foram implementados nesta fase.
+BACKEND PRODUCTION READY

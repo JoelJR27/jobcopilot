@@ -28,7 +28,7 @@ for (const path of paths) {
     if (/pnpm-lock|package-lock|\.(?:png|jpg|jpeg|ico|pdf|docx|zip)$/.test(path)) continue;
     try { if (suspicious(await readFile(path, 'utf8'))) findings.add(path); } catch { /* arquivo removido no working tree */ }
 }
-const commits = git(['log', '-5', '--format=%H']).trim().split(/\r?\n/).filter(Boolean);
+const commits = git(['log', '--all', '-5', '--format=%H']).trim().split(/\r?\n/).filter(Boolean);
 for (const commit of commits) {
     const names = git(['show', '--format=', '--name-only', commit]).trim().split(/\r?\n/).filter(Boolean);
     for (const path of names) {

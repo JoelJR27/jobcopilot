@@ -1,5 +1,11 @@
 # Exposição de dependências — Fase 7
 
+## Verificação Production — 2026-10-12
+
+Audit reexecutado: exatamente os mesmos três advisories CLI abaixo, zero críticos; exit1 aceito somente nessa condição. Build Production real da Vercel executou env gate, pnpm build/finalize-build e backend:exposure:22 traces/551 paths/1637 arquivos standalone, zero pacotes documentados, arquivos env ou secrets embutidos. Não é inferência do build local. Deployment Git READY/gru1/Node24 validado via HTTPS; API de files indisponível nesse deployment e ZIP final das lambdas não baixado. A prova de exposição usa manifests/standalone efetivamente gerados na Vercel e metadados remotos, além da inspeção acessível do deployment CLI anterior. Nenhum node_modules completo/Studio publicado como servidor. Evidências atuais em [PHASE_8_RELEASE_REPORT.md](PHASE_8_RELEASE_REPORT.md).
+
+O restante deste documento preserva a análise histórica de 8 de outubro. Frases sobre ausência de deployment e contagens locais abaixo se referem àquela data.
+
 Verificado em 2026-10-08. Prisma permanece **7.10.0**, versão 7 mais recente retornada pelo registry nesta revisão. Next permanece 16.3.8. Nenhum override, Prisma 8 ou dependência direta artificial foi introduzido.
 
 ## Atualizações compatíveis

@@ -1,5 +1,15 @@
 # JobCopilot — Codex Handoff
 
+## Estado autoritativo — release 2026-10-12
+
+Ler primeiro docs/PHASE_8_RELEASE_REPORT.md, docs/BACKEND_PRODUCTION_CHECKLIST.md e docs/BACKUP_SETUP.md. Backend ativado e verificado em https://jobcopilot-zeta.vercel.app, alpha pessoal/não comercial Vercel Hobby;5/5migrations, ADMIN bootstrap, runtime DB least-privilege/TLS, key B2 Production privada/restrita e crons jobs06UTC/GC07UTC ativos. Smoke USER A/B/ADMIN sintéticos/cross-user/429 compartilhado/503 isolado e gates remotos passaram. Nenhum secret/PII necessário nos relatórios.
+
+Backup GitHub Actions/B2 privado separado, AES-GCM/custom pg_dump/retenção >7dias, restore13tabelas/5migrations isolado comprovado. Incidente25h49 no cron diário não foi omitido; operador autorizou watchdog horário23 * * * * com refresh23h e aceitou best-effort. Manifesto HMAC e replay fresco verificados; monitorar idade/RPO≤24h, não assumir SLA nem primeiro evento horário automático já observado.
+
+Exceção explícita autorizada: cap HTTP4MiB quando VERCEL=1, pois Vercel rejeita requests >4,5MB antes do handler. Domínio continua5MiB; compensação B2/DB e arquitetura preservadas. Keys B2 antigas mantidas para revisão manual por decisão explícita; não revogar sem nova autorização.
+
+Snapshot validado publicado no Git remoto, preservando HEAD/working tree local; alterações históricas abaixo não devem ser reimplementadas. **Backend/arquitetura/features congelados.** Próxima fase somente Frontend Production Readiness mediante novo pedido. Não iniciar features backend/LLM/auto-apply. Seções anteriores abaixo são histórico de decisões e fases, não status de Production.
+
 **Last updated:** 2026-10-07
 
 This file is a continuation handoff from the ChatGPT development session for JobCopilot.

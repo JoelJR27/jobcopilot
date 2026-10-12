@@ -77,6 +77,14 @@ try {
         await upload(account, account.tag === 'b');
     }
     const [a, b] = accounts; await upload(a, true);
+    stage = 'resume_http_boundary';
+    for (const size of [4 * 1024 * 1024, 4 * 1024 * 1024 + 1]) {
+        const bytes = Buffer.alloc(size, 32); bytes.write('%PDF-1.4\n');
+        const form = new FormData(); form.set('file', new File([bytes], 'synthetic-boundary.pdf', { type: 'application/pdf' }));
+        r = await request('/api/resumes', a, 'POST', form);
+        assert(size === 4 * 1024 * 1024 ? 'VERCEL_HTTP_4_MIB_ACCEPTED' : 'VERCEL_HTTP_OVER_4_MIB_REJECTED', r.response.status === (size === 4 * 1024 * 1024 ? 201 : 400));
+    }
+    log('production_resume_http_cap', { limitBytes: 4 * 1024 * 1024, acceptedAtLimit: true, rejectedAboveLimit: true, domainLimitBytes: 5 * 1024 * 1024 });
     r = await request(`/api/profile?userId=${b.id}`, a); assert('CROSS_USER_PROFILE_READ', r.json.profile.headline === a.profile.headline);
     r = await request(`/api/preferences?userId=${b.id}`, a); assert('CROSS_USER_PREFERENCES_READ', r.json.preferences.desiredRoles[0] === a.preferences.desiredRoles[0]);
     r = await request('/api/profile', b); assert('CROSS_USER_PROFILE_WRITE', r.json.profile.headline === b.profile.headline);

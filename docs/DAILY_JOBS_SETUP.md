@@ -1,6 +1,6 @@
 # Agendamento diário — Vercel
 
-Plataforma confirmada: Vercel. **Preparado no repositório; não ativo/verificado em produção.** Siga [BACKEND_PRODUCTION_CHECKLIST.md](BACKEND_PRODUCTION_CHECKLIST.md) antes da ativação.
+Plataforma confirmada: Vercel. **Ativo/verificado em Production em 2026-10-12**, no alpha pessoal/não comercial autorizado. Os dois crons estão registrados no deployment saudável; operador executou ambos pelo botão Run e os logs completed comprovaram Bearer automático. Replays HTTPS protegidos também passaram. Evidências em [PHASE_8_RELEASE_REPORT.md](PHASE_8_RELEASE_REPORT.md) e [BACKEND_PRODUCTION_CHECKLIST.md](BACKEND_PRODUCTION_CHECKLIST.md). Registro ativo e Run não são garantia de minuto exato nem evidência de todos os ticks futuros.
 
 ## Triggers independentes
 
@@ -13,7 +13,7 @@ Ambos constam em vercel.json; uma vez/dia cada. Falha do GC não aborta jobs. Lo
 
 Jobs: pnpm jobs:run e POST operacional chamam o mesmo RunDailyJobPipeline usado no GET. GC: GET/POST chamam RunResumeGc + CleanupOrphanedResumes. POST aceita Authorization Bearer com INTERNAL_JOBS_SECRET; GET também exige CRON_SECRET igual. Nada de query string, cookie, role ou user-agent como autorização. Usuários/ADMIN comuns não podem acionar arbitrariamente.
 
-## Ativação
+## Ativação e futuras reconfigurações
 
 1. Vincular projeto Vercel, Node 24/pnpm, confirmar plano/uso permitido e quotas. Hobby é pessoal/não comercial; nenhum plano pago foi contratado.
 2. Configurar Production DATABASE_URL runtime/pooler compatível e DIRECT_DATABASE_URL direta/session para locks/migrations, mesmo banco/schema. TLS verificado, pool2 por instância, connect/statement5s; aplicar migrate deploy e confirmar status. Configurar backup e restauração.
@@ -21,6 +21,10 @@ Jobs: pnpm jobs:run e POST operacional chamam o mesmo RunDailyJobPipeline usado 
 4. Gerar CRON_SECRET/INTERNAL_JOBS_SECRET aleatórios32..256 iguais no secret store Production. Nunca NEXT_PUBLIC, código, chat, logs ou query. Vercel envia Bearer automaticamente.
 5. Executar pnpm backend:env em ambiente seguro; obter exit0. Rodar gates do checklist e revisão de runtime exposure. Deploy Production e confirmar **os dois crons no dashboard**.
 6. Verificar duração efetiva/Fluid Compute, chamar triggers de forma protegida e validar logs/counters. Só registrar automação ativa após evidência de execução no destino.
+
+## Backup independente
+
+Backup PostgreSQL não executa nas Functions Vercel. Workflow GitHub Actions com watchdog horário e refresh23h, bucket B2 privado separado e retenção >7dias: [BACKUP_SETUP.md](BACKUP_SETUP.md). Scheduler best-effort explicitamente aceito; monitorar idade do snapshot/RPO≤24h e investigar atraso/falha. Não confundir esta automação com os crons jobs/GC nem executar GC antes de conferir DB/B2 após qualquer restore/reconfiguração.
 
 ## Operação e replay
 
