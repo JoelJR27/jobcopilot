@@ -1,10 +1,16 @@
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
+  importFileExtension = "ts"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+enum UserRole {
+  USER
+  ADMIN
 }
 
 enum ResumeStatus {
@@ -36,6 +42,7 @@ model User {
   id           String @id @default(uuid())
   email        String @unique
   passwordHash String
+  role         UserRole @default(USER)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -148,6 +155,8 @@ model Job {
 
   publishedAt DateTime?
   collectedAt DateTime  @default(now())
+  active Boolean @default(true)
+  lastSeenAt DateTime @default(now())
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -162,6 +171,7 @@ model Job {
   @@index([sourceId])
   @@index([publishedAt])
   @@index([collectedAt])
+  @@index([sourceId, active, lastSeenAt])
 }
 
 model JobEnrichment {
@@ -195,6 +205,7 @@ model JobMatch {
   jobId  String
 
   score Float
+  geographyRank Int @default(3)
 
   matchedCriteria Json?
   missingCriteria Json?
@@ -210,6 +221,7 @@ model JobMatch {
 
   @@unique([userId, jobId])
   @@index([userId, score])
+  @@index([userId, geographyRank, score])
   @@index([jobId])
 }
 
@@ -228,4 +240,18 @@ model MatchFeedback {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model RateLimitBucket {
+  key String @id
+  count Int
+  resetAt DateTime
+  @@index([resetAt])
+}
+
+model JobPipelineState {
+  id String @id
+  userCursor String?
+  jobCursor String?
+  updatedAt DateTime @updatedAt
 }

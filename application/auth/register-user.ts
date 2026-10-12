@@ -15,6 +15,8 @@ export class RegisterUser {
 
     async execute({ email, password }: RegisterUserInput) {
         const normalizedEmail = email.trim().toLowerCase();
+        // Mesmo custo bcrypt para identidade nova/existente; não altera a conta existente.
+        const passwordHash = await this.passwordHasher.hash(password);
 
         const existingUser =
             await this.userRepository.findByEmail(normalizedEmail);
@@ -25,8 +27,6 @@ export class RegisterUser {
                 'USER_ALREADY_EXISTS',
             );
         }
-
-        const passwordHash = await this.passwordHasher.hash(password);
 
         return this.userRepository.create({
             email: normalizedEmail,

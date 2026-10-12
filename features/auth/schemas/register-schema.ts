@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const registerSchema = z.object({
     email: z.email({
         error: 'Informe um endereço de e-mail válido.',
-    }),
+    }).max(254, { error: 'E-mail muito longo.' }),
 
     password: z
         .string({
@@ -11,7 +11,7 @@ export const registerSchema = z.object({
         })
         .min(8, {
             error: 'A senha deve possuir pelo menos 8 caracteres.',
-        }).regex(/[A-Z]/, { error: "A senha deve conter pelo menos uma letra maiúscula." })
+        }).max(72, { error: 'A senha deve possuir no máximo 72 bytes.' }).refine((value) => new TextEncoder().encode(value).length <= 72, { error: 'A senha deve possuir no máximo 72 bytes.' }).regex(/[A-Z]/, { error: "A senha deve conter pelo menos uma letra maiúscula." })
         .regex(/[0-9]/, { error: "A senha deve conter pelo menos um número." })
         .regex(/[^A-Za-z0-9]/, { error: "A senha deve conter pelo menos um caractere especial." }),
 });

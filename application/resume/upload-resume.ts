@@ -27,6 +27,10 @@ export class UploadResume {
         const currentResume =
             await this.resumeRepository.findByUserId(input.userId);
 
+        if (currentResume && currentResume.userId !== input.userId) {
+            throw new Error('Não foi possível verificar a propriedade do currículo.');
+        }
+
         const extension =
             input.mimeType === 'application/pdf'
                 ? 'pdf'
@@ -62,7 +66,11 @@ export class UploadResume {
                     fileSize: input.content.byteLength,
                 });
         } catch (error) {
-            await this.resumeStorage.delete(newStorageKey);
+            try {
+                await this.resumeStorage.delete(newStorageKey);
+            } catch {
+                console.error('Não foi possível remover o novo currículo após falha de persistência.');
+            }
 
             throw error;
         }
@@ -72,10 +80,9 @@ export class UploadResume {
                 await this.resumeStorage.delete(
                     currentResume.storageKey,
                 );
-            } catch (error) {
+            } catch {
                 console.error(
                     'Não foi possível remover o currículo anterior do storage.',
-                    error,
                 );
             }
         }

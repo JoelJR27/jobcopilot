@@ -1,4 +1,5 @@
 import { AuthenticationError } from '@/shared/errors/authentication-error';
+import type { UserRole } from '@/domain/auth/user-role';
 
 import type { PasswordHasher } from './ports/password-hasher';
 import type { SessionManager } from './ports/session-manager';
@@ -14,6 +15,7 @@ interface LoginUserOutput {
     user: {
         id: string;
         email: string;
+        role: UserRole;
     };
     expiresAt: Date;
 }
@@ -34,6 +36,8 @@ export class LoginUser {
         const user = await this.userRepository.findByEmail(normalizedEmail);
 
         if (!user) {
+            // Mesmo custo bcrypt para identidade inexistente, sem hash/credencial fixa.
+            await this.passwordHasher.hash(password);
             throw new AuthenticationError();
         }
 
@@ -53,6 +57,7 @@ export class LoginUser {
             user: {
                 id: user.id,
                 email: user.email,
+                role: user.role,
             },
             expiresAt: session.expiresAt,
         };

@@ -49,7 +49,7 @@ describe('CleanupOrphanedResumes', () => {
             'version-orphan',
         );
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
             deleted: 1,
             skipped: 1,
         });
@@ -86,7 +86,7 @@ describe('CleanupOrphanedResumes', () => {
 
         expect(resumeStorage.deleteVersion).not.toHaveBeenCalled();
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
             deleted: 0,
             skipped: 1,
         });

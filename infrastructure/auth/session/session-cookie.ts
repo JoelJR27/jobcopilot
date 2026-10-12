@@ -6,7 +6,8 @@ const SESSION_COOKIE_NAME = 'session';
 export async function getSessionId(): Promise<string | null> {
     const cookieStore = await cookies();
 
-    return cookieStore.get(SESSION_COOKIE_NAME)?.value ?? null;
+    const value = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    return value && value.length <= 128 ? value : null;
 }
 
 export function setSessionCookie(

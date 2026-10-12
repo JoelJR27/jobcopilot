@@ -1,0 +1,5 @@
+{
+  "buildCommand": "pnpm backend:env && pnpm build && pnpm backend:exposure",
+  "regions": ["gru1"],
+  "crons": [{ "path": "/api/internal/jobs/run", "schedule": "0 6 * * *" }, { "path": "/api/internal/resumes/gc", "schedule": "0 7 * * *" }]
+}

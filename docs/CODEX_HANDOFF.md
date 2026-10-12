@@ -1,6 +1,6 @@
 # JobCopilot — Codex Handoff
 
-**Last updated:** 2026-10-05
+**Last updated:** 2026-10-07
 
 This file is a continuation handoff from the ChatGPT development session for JobCopilot.
 
@@ -14,6 +14,81 @@ Before changing code:
 ---
 
 ## Where development stopped
+
+Latest stage: PHASE_6_REPORT.md records Swile/Lever (29 persisted, 14 Brazil-first, replay zero), reusable LeverJobCollector (ciandt/swile; old CiandtJobCollector removed), feedback PUT and controls, and server-guarded minimal admin metrics/source toggles. Ineligible matches are now hidden with geographyRank=3, preserving feedback; no deletion by pipeline. DTO includes own JobMatch.id needed for feedback, never owner/job IDs. Sources ordered CI&T/Swile/Arbeitnow; Arbeitnow originals preserved with 13 new rows (338 total). Platform confirmed Vercel: vercel.json daily 06:00 UTC, GET cron adapter uses same Bearer protection as POST; CRON_SECRET must equal INTERNAL_JOBS_SECRET. Scheduler is NOT deployed/active remotely. Hardening auth CSRF/body/password limits/local rate/no-store, DB/B2 controlled config/timeouts, headers; private bucket ACL has no public grant. Next patched to 16.3.8, Node types24; Prisma7.10/Zod4 preserved. Final 410 tests (26 PG), typecheck/lint/build/diff passed. Audit still has 3 high/4 moderate Prisma transitives and is a deploy-review blocker. Other blockers: production env/DB/cron activation, local-only rate limits, authentication UI, browser smoke/throughput/CSP. No LLM/auto apply/realtime/queues. Earlier notes below are historical reference.
+
+Latest authorized stage: Brazil-first source + deterministic matching + real /jobs + daily pipeline adapters completed; details in docs/PHASE_5_REPORT.md. CI&T/Lever is the primary configured collector (174 Brazilian jobs persisted, 205 total; replay inserts zero). Arbeitnow remains secondary with its 325 rows preserved. Gate excludes geography unknown/foreign-only; remote Brazil and explicit LATAM/worldwide accepted. JobMatch.geographyRank additive migration is applied locally. Weights 30/35/15/10/10, upsert owner+job; authenticated /jobs and GET /api/jobs expose only session-owner matches. Run pnpm jobs:run; POST /api/internal/jobs/run requires server-only INTERNAL_JOBS_SECRET header, never session role/query. Shared PostgreSQL advisory lock + local HTTP cooldown. Daily cron setup is prepared in docs/DAILY_JOBS_SETUP.md, but production scheduler is not activated because deploy platform is unspecified. Full suite 357 tests passed, build/typecheck/lint/diff passed. No LLM/feedback. Historical stage-four notes below remain reference, not latest /jobs state.
+
+Production roadmap: **onboarding + first collector + job persistence/dedupe** are implemented and verified together as explicitly requested by the user (Fases 5/6 of the production plan). No matching/enrichment/scheduler/admin was started. Earlier Auth/Resume/Profile/Preferences implementations were preserved.
+
+Current collection/onboarding state:
+
+- `/onboarding` authenticates server-side, calls `GetOnboardingProgress` with session userId and exposes only completion booleans. It links to Profile/Preferences, offers initial résumé upload through the existing POST API, and enables `/jobs` only after all steps are complete.
+- `/jobs` is only an authenticated landing placeholder to avoid a broken onboarding destination; no listing/ranking/matching is implemented.
+- One real collector: Arbeitnow public JSON API at the fixed configured endpoint. It requires no key and costs nothing; platform backlinks are present. Coverage is mainly European and must be considered when validating relevance.
+- Collector guards: HTTPS/fixed source, zero redirects, 15s deadline per attempt including response stream, at most one retry with 750ms backoff for network/timeout/5xx without Retry-After; no immediate retry on 429/Retry-After; status/content-type/schema checks; 4 MiB actual-byte response limit; 1000-job cap.
+- Job URLs must belong to four preconfigured Arbeitnow regional hosts; they are never fetched. Feed pagination/next URLs are ignored. Text/HTML from descriptions is stored as untrusted text and never executed/rendered as HTML.
+- `CollectJobs` normalizes/validates before writing, persists batches of 100 and reports collected/inserted/duplicates. `PrismaJobRepository` uses createMany+skipDuplicates and both existing source-qualified unique constraints. Existing jobs are never deleted or refreshed by absence in feed.
+- `JobSource` is atomically ensured by name, with active=false respected. Stored baseUrl is metadata, never the source of a fetch URL. No schema/migration/new entity/dependency was added.
+- Run manually from root: `pnpm jobs:collect`. CLI uses Node 24 directly and fixed/sanitized logs; no HTTP trigger, cron or full matching pipeline.
+- Real execution against the configured local app DB collected/inserted **325 jobs**. A second real run collected 325, inserted **0**, duplicates **325**. These public Job/JobSource rows remain in the app DB intentionally; user/private tables were not changed.
+- Verification: 65 focused tests, 9 isolated PostgreSQL tests for this stage, complete suite 291 tests passed; typecheck, full lint, build and diff-check passed. After an onboarding JSX lint fix, affected page tests/typecheck/lint/build were repeated successfully. Sandbox network failures were retried with authorization, without raw response/error logs.
+
+Detailed source rationale, all files, commands, security checklist and debts: `docs/PHASE_4_REPORT.md`.
+
+Next work is matching/enrichment according to the roadmap, but it was not authorized or implemented here.
+
+### Previous completed phase: Profile + Preferences
+
+Current professional data flow:
+
+- `GET/PUT /api/profile`, `GET/PUT /api/preferences`, `/profile`, `/preferences` are implemented using existing Prisma models, no migration/new entity/dependency.
+- All handlers require session authentication. Read/upsert target only `user.id`; body/query identity and roles are ignored. ADMIN uses its own data with no cross-user privilege.
+- Domain schemas use Zod v4/PT-BR. JSON fields are bounded string lists (one item per line in UI), not arbitrary JSON. Seniority uses INTERN/JUNIOR/MID/SENIOR/LEAD; work models use REMOTE/HYBRID/ONSITE.
+- Minimum save: Profile needs headline, skills, roles, seniority. Preferences need desiredRoles, seniority, workModels; HYBRID/ONSITE also need locations. Optional fields default to empty text/lists. PUT is a full replacement of editable fields.
+- JSON body capped at 64 KiB of actual bytes with 10s read deadline; mutations reject cross-site/invalid origin and non-JSON content types. All API responses, including errors, use `Cache-Control: no-store`; outputs contain only professional fields, no IDs/owner/timestamps/secrets.
+- Ports/use cases are under `application/profile` and `application/preferences`. Prisma repositories receive the client through composition and use atomic upsert on unique userId; explicit field mapping prevents mass assignment.
+- Pages are explicitly dynamic and authenticate server-side. Client editors fetch same-origin APIs, validate fields, render text only, handle loading/errors/save feedback and block editing until data successfully loads. Client requests timeout after 15s. No login UI was added; without session, pages show a controlled login-required message.
+- Verification: 86 focused tests, 3 isolated PostgreSQL tests for this feature, full suite 217 tests (including all PostgreSQL/B2 tests) passed; typecheck, full lint, build and diff-check passed. B2 required an authorized rerun after sandbox EACCES.
+
+Detailed limits, all changed files, security checklist and debts: `docs/PHASE_3_REPORT.md`.
+
+The originally recorded next step (onboarding) is now completed as described above.
+
+### Previous completed phase: Resume
+
+Current résumé hardening:
+
+- Multipart input is read with an actual-byte cap of 5 MiB + 64 KiB overhead and a 20-second read/parse deadline before parsing. File limit remains 5 MiB and is checked again in the application.
+- DOCX now requires a coherent ZIP32 directory and local headers, nonempty `[Content_Types].xml` / `word/document.xml`, safe nonduplicate names, supported methods 0/8 and no encryption. Limits: 256 entries, 10 MiB per declared expanded entry, 20 MiB declared expanded total, compression ratio 100:1.
+- This is container inspection only: no extraction/decompression, XML parsing or payload CRC validation. A future parser must validate actual expanded bytes and contents independently. The old four-byte DOCX fixture in historical sections is no longer accepted.
+- Compensation B2/DB remains in place. Failure to delete the new object after a DB error no longer masks the original DB error; all upload logs are fixed messages without raw errors. Old-object deletion failure still preserves the successful replacement.
+- An explicit application ownership check rejects a repository result belonging to another user before storage access.
+- Success metadata uses `Cache-Control: no-store`; `storageKey` and client identity are not exposed. PDF/DOCX normal flows and cross-user isolation are tested for USER and ADMIN.
+- The existing 10-attempts/user/hour limiter remains per-process memory, resets on restart and is not distributed. It is provisional for alpha.
+- Final verification: 121 offline tests passed (including résumé/HTTP), 4 PostgreSQL integration tests stayed opt-in/skipped; typecheck, full lint and diff-check passed. Storage adapter/configuration did not change; no B2 integration was needed or executed.
+
+Detailed changed files, security checklist and remaining debts: `docs/PHASE_2_REPORT.md`.
+
+The next step originally recorded here (Profile) is now completed with Preferences as documented above.
+
+### Previous completed phase: roles + seed
+
+- `UserRole` adds USER (default) and ADMIN through `20261007000000_add_user_role`.
+- Authenticated user/login/cadastro return public `id`, `email`, `role`; registration always persists USER and ignores client role/identity.
+- `requireAdminUser()` validates the database-backed authenticated user's role server-side. Missing/invalid sessions raise `UnauthorizedError` (401 convention); authenticated non-admin users raise `ForbiddenError` (403 convention). No `/admin` route exists yet; it belongs to Fase 12.
+- The admin seed uses `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`, validates them separately from runtime envs, hashes with bcrypt and atomically upserts by email. Existing passwords are preserved. USER → ADMIN promotion revokes only that user's sessions in the same transaction; repeated seed for ADMIN preserves sessions.
+- `prisma7.config.ts` remains the actual config filename. Use `pnpm db:generate`, `pnpm db:migrate:deploy`, `pnpm db:seed` from repository root. All scripts explicitly pass this config.
+- Seed runs directly on Node 24. Prisma-generated imports use `.ts` and TypeScript allows these extensions; no new dependency was installed.
+- `.env.example` contains only blank values and is explicitly allowed by `.gitignore`. Seed-only envs are not required for normal runtime.
+- Verification: 78 offline tests passed; 4 PostgreSQL integration tests passed in a temporary isolated local schema; full lint, typecheck and Prisma validate passed. The integration suite is opt-in (`JOBCOPILOT_DB_TESTS=1`) and refuses non-local PostgreSQL.
+- The migration and seed were **not** run against normal application tables. Apply the migration before running the app with the updated Prisma Client, and execute bootstrap only when the intended seed credentials are configured.
+
+Detailed changed files, security checklist and remaining debts: `docs/PHASE_1_REPORT.md`.
+
+The original next step (Fase 2) is now completed as documented above. Other production hardening remains assigned to subsequent roadmap phases.
+
+The following résumé notes and code examples are historical reference; current roles/signatures should be confirmed in the repository.
 
 The résumé HTTP upload flow is now implemented and tested:
 
@@ -1123,3 +1198,17 @@ Do not over-engineer.
 When giving CLI commands, make it clear where they should be run if ambiguity exists.
 
 The user communicates in Brazilian Portuguese, so explanations and validation messages should generally remain in PT-BR.
+
+## Atualização Fase 7 — 2026-10-08
+
+Backend endurecido; ler docs/PHASE_7_REPORT.md, docs/BACKEND_PRODUCTION_CHECKLIST.md e docs/DEPENDENCY_EXPOSURE_REPORT.md antes de continuar. Sem frontend adicional/LLM nesta fase.
+
+Rate limiter PostgreSQL distribuído via port comum, HMAC e teto10mil; local apenas dev/test, produção falha fechado503 sem fallback. Migration aditiva20261007020000_backend_readiness: Job.active/lastSeenAt, RateLimitBucket e JobPipelineState; cinco migrations aplicadas localmente. Lifecycle14dias após coleta válida, proteção de leitura30dias mesmo com fonte indisponível; refresh/reativação preservam JobMatch/feedback. Identidade ambígua não sobrescreve duas rows.
+
+Pipeline deadline240s, batches50users/100jobs, bulk upsert e checkpoint na mesma transação; replay/cancelamento/parcial testados em schema isolado. GC independente GET/POST /api/internal/resumes/gc, deadline45s, lock separado; listVersions/deleteVersion, janela24h, listagem limitada/paginada. Cron jobs06UTC e GC07UTC preparados, **não ativos/verificados remotamente**. DIRECT_DATABASE_URL obrigatória na Vercel para locksession/migrations; TLS remoto verificado e pool2.
+
+Cadastro agora201 público idêntico para email novo/existente, sem alterar conta/role/senha existentes. Auth me erros no-store corrigidos; Profile/Preferences PUT e adminmetrics receberam limite compartilhado. Ownership da sessão e ADMIN como permissão adicional preservados.
+
+Dependências compatíveis atualizadas: lodash4.18.1/fast-uri3.1.8. Audit permanece2altos/1moderado em CLI Prisma (deepmerge-ts/mysql2), ausência no runtime comprovada por manifests/standalone e gate backend:exposure. Nenhum crítico/override/Prisma8. Não afirmar audit limpo.
+
+Gates/testes/medição e blockers operacionais no relatório. Próximo trabalho somente mediante escopo do usuário; não presumir deploy ativo, scheduler ativo ou aprovação para frontend/LLM. Configurar envs/DB/TLS/backup/policy e verificar deployment real antes de abrir público. Alterações prévias das fases1–6 permanecem no working tree, sem commit automático.

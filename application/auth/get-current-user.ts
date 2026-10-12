@@ -26,6 +26,10 @@ export class GetCurrentUser {
             throw new UnauthorizedError();
         }
 
-        return user;
+        return {
+            id: user.id,
+            email: user.email,
+            role: user.role,
+        };
     }
 }

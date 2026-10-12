@@ -3,9 +3,27 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
 import { B2ResumeStorage } from './b2-resume-storage';
+import { GetBucketAclCommand } from '@aws-sdk/client-s3';
+import { b2Client } from './client';
+import { env } from '@/shared/config/env';
 
 describe('B2ResumeStorage', () => {
     const storage = new B2ResumeStorage();
+    it('bucket privado sem grants públicos e objeto sintético não é acessível anonimamente', async () => {
+        const key = `tests/private-${randomUUID()}.pdf`;
+        try {
+            const acl = await b2Client.send(new GetBucketAclCommand({ Bucket: env.B2_BUCKET_NAME }));
+            expect((acl.Grants ?? []).every((grant) => grant.Grantee?.Type === 'CanonicalUser' && grant.Grantee.ID === acl.Owner?.ID)).toBe(true);
+            await storage.save({ key, content: new TextEncoder().encode('%PDF-1.7\nsynthetic'), contentType: 'application/pdf' });
+            const url = new URL(env.B2_ENDPOINT); url.pathname = '/' + encodeURIComponent(env.B2_BUCKET_NAME) + '/' + key;
+            const response = await fetch(url, { redirect: 'error', credentials: 'omit', signal: AbortSignal.timeout(5000) });
+            await response.body?.cancel();
+            expect([401, 403, 404].includes(response.status)).toBe(true);
+        } finally {
+            const versions = await storage.listVersions('tests/');
+            for (const version of versions.filter((value) => value.key === key)) await storage.deleteVersion(key, version.versionId);
+        }
+    });
 
     it('deve salvar, recuperar e excluir um arquivo', async () => {
         const storage = new B2ResumeStorage();

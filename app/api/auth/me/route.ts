@@ -14,9 +14,13 @@ export async function GET() {
 
         return NextResponse.json(
             {
-                user,
+                user: {
+                    id: user.id,
+                    email: user.email,
+                    role: user.role,
+                },
             },
-            { status: 200 },
+            { status: 200, headers: { 'Cache-Control': 'no-store' } },
         );
     } catch (error) {
         if (error instanceof UnauthorizedError) {
@@ -24,17 +28,17 @@ export async function GET() {
                 {
                     message: 'Você não está autenticado.',
                 },
-                { status: 401 },
+                { status: 401, headers: { 'Cache-Control': 'no-store' } },
             );
         }
 
-        console.error(error);
+        console.error('Erro inesperado ao verificar a autenticação.');
 
         return NextResponse.json(
             {
                 message: 'Ocorreu um erro ao verificar a autenticação.',
             },
-            { status: 500 },
+            { status: 500, headers: { 'Cache-Control': 'no-store' } },
         );
     }
 }

@@ -1,0 +1,9 @@
+import { describe, expect, it } from 'vitest';
+import { backendProductionEnvironmentIssues } from '@/shared/config/backend-production-env';
+import { databaseOptions } from '@/shared/config/database-env';
+const fixture = { DATABASE_URL: 'postgresql://fixture:synthetic@db.example/app', DIRECT_DATABASE_URL: 'postgresql://fixture:synthetic@db.example/app', APP_URL: 'https://app.example', RATE_LIMIT_MODE: 'postgres', RATE_LIMIT_KEY_SECRET: 'synthetic-rate-only-'.repeat(3), INTERNAL_JOBS_SECRET: 'synthetic-cron-only-'.repeat(3), CRON_SECRET: 'synthetic-cron-only-'.repeat(3), B2_ENDPOINT: 'https://s3.example.com', B2_REGION: 'fixture', B2_KEY_ID: 'fixture', B2_APPLICATION_KEY: 'fixture', B2_KEY_NAME: 'fixture', B2_BUCKET_NAME: 'fixture' };
+describe('Configuração de produção', () => {
+    it('valida configuração sem expor valores', () => { expect(backendProductionEnvironmentIssues(fixture)).toEqual([]); const issues = backendProductionEnvironmentIssues({ ...fixture, RATE_LIMIT_MODE: 'local', CRON_SECRET: 'sensitive-test', NEXT_PUBLIC_SECRET: 'sensitive-test' }); expect(issues).toContain('RATE_LIMIT_MODE'); expect(issues).toContain('NEXT_PUBLIC_SECRET'); expect(JSON.stringify(issues)).not.toContain('sensitive-test'); });
+    it('TLS remoto verifica certificado e URLs sslmode não desativam verificação', () => { const options = databaseOptions(fixture.DATABASE_URL + '?sslmode=no-verify'); expect(options.ssl).toEqual({ rejectUnauthorized: true }); expect(options.connectionString).not.toContain('sslmode'); expect(options.max).toBe(2); expect(options.statement_timeout).toBe(5000); });
+    it('banco local não exige TLS e não é aprovado como produção', () => { expect(databaseOptions('postgresql://localhost/app').ssl).toBeUndefined(); expect(backendProductionEnvironmentIssues({ ...fixture, DATABASE_URL: 'postgresql://localhost/app' })).toContain('DATABASE_URL'); });
+});

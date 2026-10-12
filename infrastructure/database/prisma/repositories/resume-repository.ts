@@ -69,6 +69,7 @@ export class PrismaResumeRepository implements ResumeRepository, ResumeMaintenan
 
     async listStorageKeys(): Promise<string[]> {
         const resumes = await prisma.resume.findMany({
+            take: 100001,
             select: {
                 storageKey: true,
             },

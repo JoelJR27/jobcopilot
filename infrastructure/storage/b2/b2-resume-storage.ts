@@ -1,3 +1,4 @@
+import type { ExecutionContext } from '@/application/operations/execution-context';
 import {
     DeleteObjectCommand,
     GetObjectCommand,
@@ -67,6 +68,7 @@ export class B2ResumeStorage
 
     async listVersions(
         prefix: string,
+        context?: ExecutionContext,
     ): Promise<
         {
             key: string;
@@ -75,28 +77,18 @@ export class B2ResumeStorage
             lastModified: Date;
         }[]
     > {
-        const response = await b2Client.send(
-            new ListObjectVersionsCommand({
-                Bucket: env.B2_BUCKET_NAME,
-                Prefix: prefix,
-            }),
-        );
-
-        const versions = [
-            ...(response.Versions ?? []).map((version) => ({
-                key: version.Key,
-                versionId: version.VersionId,
-                isDeleteMarker: false,
-                lastModified: version.LastModified,
-            })),
-            ...(response.DeleteMarkers ?? []).map((marker) => ({
-                key: marker.Key,
-                versionId: marker.VersionId,
-                isDeleteMarker: true,
-                lastModified: marker.LastModified,
-            })),
-        ];
-
+        const versions: { key: string | undefined; versionId: string | undefined; isDeleteMarker: boolean; lastModified: Date | undefined }[] = [];
+        let keyMarker: string | undefined; let versionMarker: string | undefined;
+        for (let page = 0; page < 10; page++) {
+            context?.check();
+            const response = await b2Client.send(new ListObjectVersionsCommand({ Bucket: env.B2_BUCKET_NAME, Prefix: prefix, MaxKeys: 1000, KeyMarker: keyMarker, VersionIdMarker: versionMarker }), { abortSignal: context?.signal });
+            versions.push(...(response.Versions ?? []).map((value) => ({ key: value.Key, versionId: value.VersionId, isDeleteMarker: false, lastModified: value.LastModified })),
+                ...(response.DeleteMarkers ?? []).map((value) => ({ key: value.Key, versionId: value.VersionId, isDeleteMarker: true, lastModified: value.LastModified })));
+            if (versions.length > 10000) throw new Error('GC_VERSION_LIMIT');
+            if (!response.IsTruncated) break;
+            if (page === 9 || !response.NextKeyMarker || (response.NextKeyMarker === keyMarker && response.NextVersionIdMarker === versionMarker)) throw new Error('GC_PAGINATION_LIMIT');
+            keyMarker = response.NextKeyMarker; versionMarker = response.NextVersionIdMarker;
+        }
         return versions.filter(
             (
                 version,
@@ -115,13 +107,14 @@ export class B2ResumeStorage
     async deleteVersion(
         key: string,
         versionId: string,
+        context?: ExecutionContext,
     ): Promise<void> {
         await b2Client.send(
             new DeleteObjectCommand({
                 Bucket: env.B2_BUCKET_NAME,
                 Key: key,
                 VersionId: versionId,
-            }),
+            }), { abortSignal: context?.signal },
         );
     }
 }

@@ -1,4 +1,5 @@
 import { ValidationError } from "@/shared/errors/validation-error";
+import { isValidDocxContainer } from './validate-docx-container';
 
 export const MAX_RESUME_SIZE = 5 * 1024 * 1024;
 
@@ -59,7 +60,7 @@ export function validateResumeFile(input: {
 
     if (
         input.mimeType === DOCX_MIME_TYPE &&
-        !startsWith(input.content, ZIP_SIGNATURE)
+        (!startsWith(input.content, ZIP_SIGNATURE) || !isValidDocxContainer(input.content))
     ) {
         throw new ValidationError(
             'O conteúdo do arquivo DOCX é inválido.',

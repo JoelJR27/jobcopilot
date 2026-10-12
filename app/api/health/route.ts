@@ -8,14 +8,14 @@ export async function GET() {
         return NextResponse.json({
             status: 'ok',
             database: 'up',
-        });
+        }, { headers: { 'Cache-Control': 'no-store' } });
     } catch {
         return NextResponse.json(
             {
                 status: 'error',
                 database: 'down',
             },
-            { status: 503 },
+            { status: 503, headers: { 'Cache-Control': 'no-store' } },
         );
     }
 }

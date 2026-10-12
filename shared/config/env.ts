@@ -3,11 +3,11 @@ import { z } from 'zod';
 const envSchema = z.object({
     DATABASE_URL: z.url({
         error: 'A URL de conexão com o banco de dados é inválida.',
-    }),
+    }).refine((value) => ['postgres:', 'postgresql:'].includes(new URL(value).protocol), { error: 'Banco inválido.' }),
 
     B2_ENDPOINT: z.url({
         error: 'A URL do endpoint do Backblaze B2 é inválida.',
-    }),
+    }).refine((value) => { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password; }, { error: 'Endpoint B2 deve usar HTTPS sem credenciais.' }),
 
     B2_REGION: z.string({
         error: 'A região do Backblaze B2 é obrigatória.',
@@ -39,7 +39,7 @@ const envSchema = z.object({
     }),
 });
 
-export const env = envSchema.parse({
+const settings = envSchema.safeParse({
     DATABASE_URL: process.env.DATABASE_URL,
     B2_ENDPOINT: process.env.B2_ENDPOINT,
     B2_REGION: process.env.B2_REGION,
@@ -48,3 +48,5 @@ export const env = envSchema.parse({
     B2_APPLICATION_KEY: process.env.B2_APPLICATION_KEY,
     B2_BUCKET_NAME: process.env.B2_BUCKET_NAME,
 });
+if (!settings.success) throw new Error('Configuração de storage inválida.');
+export const env = settings.data;

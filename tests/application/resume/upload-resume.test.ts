@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { UploadResume } from '@/application/resume/upload-resume';
 import type { ResumeRepository } from '@/application/resume/ports/resume-repository';
@@ -224,7 +224,21 @@ describe('UploadResume', () => {
         expect(updateCalled).toBe(false);
     });
 
+    it('falha no update compensa somente o arquivo novo e preserva o anterior', async () => {
+        const current = { id: 'current', userId: 'user-a', fileName: 'old.pdf', storageKey: 'resumes/user-a/old.pdf', mimeType: PDF_MIME_TYPE, fileSize: 10 };
+        const repository = makeResumeRepository(current);
+        const error = new Error('test-update-failure');
+        repository.update = async () => { throw error; };
+        const storage = makeResumeStorage();
+        await expect(new UploadResume(repository, storage).execute({
+            userId: 'user-a', fileName: 'new.pdf', mimeType: PDF_MIME_TYPE, content: makePdfContent(),
+        })).rejects.toBe(error);
+        expect(storage.deletedKeys).toEqual(storage.savedKeys);
+        expect(storage.deletedKeys).not.toContain(current.storageKey);
+    });
+
     it('deve manter o novo currículo quando a remoção do antigo falhar', async () => {
+        const log = vi.spyOn(console, 'error').mockImplementation(() => {});
         const currentResume = {
             id: 'resume-old',
             userId: 'user-1',
@@ -284,5 +298,50 @@ describe('UploadResume', () => {
         expect(storage.deletedKeys[0]).not.toBe(
             storage.savedKeys[0],
         );
+        expect(log).toHaveBeenCalledExactlyOnceWith('Não foi possível remover o currículo anterior do storage.');
+        log.mockRestore();
+    });
+
+    it('preserva erro do DB se compensação também falhar e não registra exception raw', async () => {
+        const repository = makeResumeRepository();
+        const databaseError = new Error('private-database-fixture');
+        repository.create = async () => { throw databaseError; };
+        const storage = makeResumeStorage();
+        storage.delete = async () => { throw new Error('private-storage-fixture'); };
+        const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+            await expect(new UploadResume(repository, storage).execute({
+                userId: 'user-a', fileName: 'test.pdf', mimeType: PDF_MIME_TYPE, content: makePdfContent(),
+            })).rejects.toBe(databaseError);
+            expect(storage.savedKeys).toHaveLength(1);
+            expect(log).toHaveBeenCalledExactlyOnceWith('Não foi possível remover o novo currículo após falha de persistência.');
+        } finally {
+            log.mockRestore();
+        }
+    });
+
+    it('falha fechado se repository devolver currículo de outro usuário', async () => {
+        const repository = makeResumeRepository({
+            id: 'resume-b', userId: 'user-b', fileName: 'private.pdf',
+            storageKey: 'resumes/user-b/private.pdf', mimeType: PDF_MIME_TYPE, fileSize: 10,
+        });
+        const storage = makeResumeStorage();
+        await expect(new UploadResume(repository, storage).execute({
+            userId: 'user-a', fileName: 'test.pdf', mimeType: PDF_MIME_TYPE, content: makePdfContent(),
+        })).rejects.toThrow('Não foi possível verificar a propriedade do currículo.');
+        expect(storage.savedKeys).toEqual([]);
+        expect(storage.deletedKeys).toEqual([]);
+    });
+
+    it('gera keys diferentes sem confiar em filename e mantém extensão do MIME', async () => {
+        const storage = makeResumeStorage();
+        const upload = new UploadResume(makeResumeRepository(), storage);
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            await upload.execute({ userId: 'user-a', fileName: '../../script.docx', mimeType: PDF_MIME_TYPE, content: makePdfContent() });
+        }
+        expect(new Set(storage.savedKeys).size).toBe(2);
+        for (const key of storage.savedKeys) {
+            expect(key).toMatch(/^resumes\/user-a\/[0-9a-f-]{36}\.pdf$/);
+        }
     });
 });

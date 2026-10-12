@@ -1,9 +1,12 @@
+import { ServiceUnavailableError } from '@/shared/errors/service-unavailable-error';
 import { NextResponse } from 'next/server';
+const json = (body: unknown, init: { status?: number; headers?: Record<string, string> } = {}) => NextResponse.json(body, { ...init, headers: { 'Cache-Control': 'no-store', ...init.headers } });
 
 import { MAX_RESUME_SIZE } from '@/application/resume/validate-resume-file';
 import { requireAuthenticatedUser } from '@/infrastructure/auth/session/require-authenticated-user';
 import { makeUploadResume } from '@/infrastructure/composition/resume';
 import { checkResumeUploadLimit } from '@/infrastructure/http/resume-upload-limit';
+import { readResumeFormData } from '@/infrastructure/http/read-resume-form-data';
 
 import { UnauthorizedError } from '@/shared/errors/unauthorized-error';
 import { ValidationError } from '@/shared/errors/validation-error';
@@ -18,16 +21,16 @@ export async function POST(request: Request) {
             (origin !== null && origin !== new URL(request.url).origin) ||
             request.headers.get('sec-fetch-site') === 'cross-site'
         ) {
-            return NextResponse.json(
+            return json(
                 { error: 'Origem da requisição não permitida.' },
                 { status: 403 },
             );
         }
 
-        const retryAfter = checkResumeUploadLimit(user.id);
+        const retryAfter = await checkResumeUploadLimit(user.id);
 
         if (retryAfter !== null) {
-            return NextResponse.json(
+            return json(
                 { error: 'Muitos envios de currículo. Tente novamente mais tarde.' },
                 { status: 429, headers: { 'Retry-After': String(retryAfter) } },
             );
@@ -40,18 +43,14 @@ export async function POST(request: Request) {
             throw new ValidationError('Envie o currículo como multipart/form-data.');
         }
 
-        let formData: FormData;
-
-        try {
-            formData = await request.formData();
-        } catch {
-            throw new ValidationError('O formulário de envio do currículo é inválido.');
-        }
-
+        // Vercel limits the whole HTTP body to 4.5 MB; preserve room for multipart.
+        // The application/domain limit remains 5 MiB.
+        const maximumFileSize = process.env.VERCEL === '1' ? 4 * 1024 * 1024 : MAX_RESUME_SIZE;
+        const formData = await readResumeFormData(request, maximumFileSize);
         const file = formData.get('file');
 
         if (!(file instanceof File)) {
-            return NextResponse.json(
+            return json(
                 {
                     error: 'O currículo é obrigatório.',
                 },
@@ -61,9 +60,11 @@ export async function POST(request: Request) {
             );
         }
 
-        if (file.size > MAX_RESUME_SIZE) {
+        if (file.size > maximumFileSize) {
             throw new ValidationError(
-                'O currículo deve possuir no máximo 5 MB.',
+                maximumFileSize < MAX_RESUME_SIZE
+                    ? 'Nesta implantação, o currículo deve possuir no máximo 4 MB.'
+                    : 'O currículo deve possuir no máximo 5 MB.',
                 'RESUME_FILE_TOO_LARGE',
             );
         }
@@ -81,7 +82,7 @@ export async function POST(request: Request) {
             content,
         });
 
-        return NextResponse.json(
+        return json(
             {
                 resume: {
                     id: resume.id,
@@ -93,11 +94,13 @@ export async function POST(request: Request) {
             },
             {
                 status: 201,
+                headers: { 'Cache-Control': 'no-store' },
             },
         );
     } catch (error) {
+        if (error instanceof ServiceUnavailableError) return json({ error: 'Serviço temporariamente indisponível.' }, { status: 503 });
         if (error instanceof UnauthorizedError) {
-            return NextResponse.json(
+            return json(
                 {
                     error: error.message,
                 },
@@ -108,7 +111,7 @@ export async function POST(request: Request) {
         }
 
         if (error instanceof ValidationError) {
-            return NextResponse.json(
+            return json(
                 {
                     error: error.message,
                 },
@@ -122,7 +125,7 @@ export async function POST(request: Request) {
             'Erro inesperado ao fazer upload do currículo.',
         );
 
-        return NextResponse.json(
+        return json(
             {
                 error: 'Não foi possível enviar o currículo.',
             },
