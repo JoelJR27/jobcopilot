@@ -190,8 +190,10 @@ try {
     for (const version of versions) if (version.Key === MANIFEST_KEY && version.VersionId) await send(new DeleteObjectCommand({ Bucket: bucket, Key: MANIFEST_KEY, VersionId: version.VersionId }));
     log('database_backup_completed', { durationMs: Date.now() - started, sizeBytes: encrypted.length, checksumPrefix: checksum(encrypted).toString('hex').slice(0, 12), replay, removed });
     }
-} catch {
-    log('database_backup_failed', { stage, durationMs: Date.now() - started, isolatedBranchRetained: !!restoredBranch });
+} catch (error) {
+    const allowedCodes = new Set(['BACKUP_BUSY', 'MANIFEST_INVALID', 'MANIFEST_TIME_INVALID', 'RESTORE_COUNTS_MISMATCH', 'RESTORE_ISOLATION_FAILED', 'BRANCH_QUOTA', 'POSTGRES_TOOL_FAILED', 'CHECKSUM_INVALID', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE']);
+    const code = allowedCodes.has(error?.message) ? error.message : allowedCodes.has(error?.code) || /^[0-9A-Z]{5}$/.test(error?.code ?? '') ? error.code : 'OPERATION_FAILED';
+    log('database_backup_failed', { stage, code, durationMs: Date.now() - started, isolatedBranchRetained: !!restoredBranch });
     process.exitCode = 1;
 } finally {
     if (lock) { if (acquired) await lock.query('SELECT pg_advisory_unlock(742911, 4)').catch(() => {}); await lock.end().catch(() => {}); }
