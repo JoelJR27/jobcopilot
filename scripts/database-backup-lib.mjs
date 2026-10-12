@@ -1,9 +1,11 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export const MAX_DUMP_BYTES = 64 * 1024 * 1024;
 export const MAX_STORAGE_BYTES = 768 * 1024 * 1024;
 export const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 export const PREFIX = 'database-backups/';
+export const MANIFEST_KEY = `${PREFIX}latest.json`;
+export const BACKUP_REFRESH_MS = 23 * 60 * 60 * 1000;
 const MAGIC = Buffer.from('JCBACK01');
 
 export function checksum(bytes) { return createHash('sha256').update(bytes).digest(); }
@@ -30,6 +32,29 @@ export function decryptDump(encrypted, key) {
     return dump;
 }
 export function backupName(now = new Date()) { return `${PREFIX}${now.toISOString().slice(0, 10)}.pgdump.aes`; }
+function manifestBody(value) {
+    const { key, versionId, sha256, sizeBytes, snapshotAt } = value;
+    if (!/^database-backups\/\d{4}-\d{2}-\d{2}\.pgdump\.aes$/.test(key ?? '') || !/^[a-zA-Z0-9_-]{1,200}$/.test(versionId ?? '') || !/^[a-f0-9]{64}$/.test(sha256 ?? '') || !Number.isInteger(sizeBytes) || sizeBytes < 73 || sizeBytes > MAX_DUMP_BYTES + 68 || typeof snapshotAt !== 'string' || !Number.isFinite(Date.parse(snapshotAt)) || new Date(snapshotAt).toISOString() !== snapshotAt) throw new Error('MANIFEST_INVALID');
+    return { key, versionId, sha256, sizeBytes, snapshotAt };
+}
+function manifestSignature(body, key) {
+    const signingKey = createHmac('sha256', key).update('jobcopilot-backup-manifest-v1').digest();
+    return createHmac('sha256', signingKey).update(JSON.stringify(body)).digest('hex');
+}
+export function signManifest(value, key) {
+    const body = manifestBody(value);
+    return { ...body, signature: manifestSignature(body, key) };
+}
+export function verifyManifest(value, key) {
+    const body = manifestBody(value);
+    if (!/^[a-f0-9]{64}$/.test(value.signature ?? '') || !timingSafeEqual(Buffer.from(value.signature, 'hex'), Buffer.from(manifestSignature(body, key), 'hex'))) throw new Error('MANIFEST_INVALID');
+    return body;
+}
+export function backupDue(snapshotAt, now = new Date()) {
+    const timestamp = Date.parse(snapshotAt);
+    if (!Number.isFinite(timestamp) || timestamp > now.getTime() + 300000) throw new Error('MANIFEST_TIME_INVALID');
+    return now.getTime() - timestamp >= BACKUP_REFRESH_MS;
+}
 export function expiredVersion(version, now = new Date()) {
     // Unknown names/timestamps never authorize a deletion. Both dates must be old.
     const match = /^database-backups\/(\d{4}-\d{2}-\d{2})\.pgdump\.aes$/.exec(version.Key ?? '');

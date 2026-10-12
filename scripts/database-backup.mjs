@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { S3Client, GetObjectCommand, PutObjectCommand, ListObjectVersionsCommand, DeleteObjectCommand, GetBucketAclCommand } from '@aws-sdk/client-s3';
-import { MAX_DUMP_BYTES, MAX_STORAGE_BYTES, PREFIX, checksum, encryptionKey, encryptDump, decryptDump, backupName, expiredVersion, postgresEnvironment } from './database-backup-lib.mjs';
+import { MAX_DUMP_BYTES, MAX_STORAGE_BYTES, PREFIX, MANIFEST_KEY, checksum, encryptionKey, encryptDump, decryptDump, backupName, expiredVersion, postgresEnvironment, signManifest, verifyManifest, backupDue } from './database-backup-lib.mjs';
 
 const IMAGE = 'postgres:18@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336';
 const started = Date.now();
@@ -136,38 +136,60 @@ try {
     if (inventory.IsTruncated) throw new Error('INVENTORY_LIMIT');
     const versions = [...(inventory.Versions ?? []), ...(inventory.DeleteMarkers ?? [])];
     const storageBytes = (inventory.Versions ?? []).reduce((sum, v) => sum + (v.Size ?? MAX_STORAGE_BYTES), 0);
+    let manifest;
+    try {
+        const current = await send(new GetObjectCommand({ Bucket: bucket, Key: MANIFEST_KEY }));
+        if (!current.ContentLength || current.ContentLength > 2048) throw new Error('MANIFEST_LIMIT');
+        manifest = verifyManifest(JSON.parse(Buffer.from(await current.Body.transformToByteArray()).toString('utf8')), key);
+    } catch (error) { if (error?.name !== 'NoSuchKey') throw error; }
+    if (manifest && process.env.BACKUP_VERIFY_RESTORE !== 'true' && !backupDue(manifest.snapshotAt)) {
+        log('database_backup_fresh', { durationMs: Date.now() - started });
+    } else {
     const name = backupName();
     let encrypted;
     let replay = false;
+    let versionId;
+    let snapshotAt;
     try {
         const existing = await send(new GetObjectCommand({ Bucket: bucket, Key: name }));
         if (!existing.ContentLength || existing.ContentLength > MAX_DUMP_BYTES + 68) throw new Error('ARCHIVE_LIMIT');
         encrypted = Buffer.from(await existing.Body.transformToByteArray());
+        versionId = existing.VersionId;
+        // Conservative bootstrap for archives created before the signed manifest.
+        snapshotAt = new Date(existing.LastModified.getTime() - 180000).toISOString();
         if (existing.Metadata?.sha256 !== checksum(encrypted).toString('hex')) throw new Error('CHECKSUM_INVALID');
         decryptDump(encrypted, key); replay = true;
     } catch (error) { if (error?.name !== 'NoSuchKey') throw error; }
     // Manual restore verification takes a fresh snapshot; previous versions remain retained.
-    if (process.env.BACKUP_VERIFY_RESTORE === 'true') replay = false;
+    if (process.env.BACKUP_VERIFY_RESTORE === 'true' || (manifest && backupDue(manifest.snapshotAt)) || (snapshotAt && backupDue(snapshotAt))) replay = false;
     if (!replay) {
         stage = 'pg_dump';
+        snapshotAt = new Date().toISOString();
         const dump = await postgresTool('pg_dump', url);
         stage = 'encrypt';
         encrypted = encryptDump(dump, key);
         if (storageBytes + encrypted.length > MAX_STORAGE_BYTES) throw new Error('FREE_STORAGE_BUDGET');
         stage = 'upload';
-        await send(new PutObjectCommand({ Bucket: bucket, Key: name, Body: encrypted, ContentType: 'application/octet-stream', Metadata: { sha256: checksum(encrypted).toString('hex') } }));
+        const uploaded = await send(new PutObjectCommand({ Bucket: bucket, Key: name, Body: encrypted, ContentType: 'application/octet-stream', Metadata: { sha256: checksum(encrypted).toString('hex') } }));
+        versionId = uploaded.VersionId;
     }
     stage = 'retrieve_checksum_decrypt';
-    const retrieved = await send(new GetObjectCommand({ Bucket: bucket, Key: name }));
+    const retrieved = await send(new GetObjectCommand({ Bucket: bucket, Key: name, VersionId: versionId }));
     if (retrieved.ContentLength !== encrypted.length) throw new Error('ARCHIVE_SIZE_MISMATCH');
     const bytes = Buffer.from(await retrieved.Body.transformToByteArray());
     if (!checksum(bytes).equals(checksum(encrypted)) || retrieved.Metadata?.sha256 !== checksum(bytes).toString('hex')) throw new Error('CHECKSUM_INVALID');
     const dump = decryptDump(bytes, key);
     if (process.env.BACKUP_VERIFY_RESTORE === 'true') await verifyRestore(dump);
+    stage = 'commit_manifest';
+    const committed = signManifest({ key: name, versionId, sha256: checksum(encrypted).toString('hex'), sizeBytes: encrypted.length, snapshotAt }, key);
+    await send(new PutObjectCommand({ Bucket: bucket, Key: MANIFEST_KEY, Body: JSON.stringify(committed), ContentType: 'application/json' }));
     stage = 'rotation';
     let removed = 0;
     for (const version of versions) if (expiredVersion(version)) { await send(new DeleteObjectCommand({ Bucket: bucket, Key: version.Key, VersionId: version.VersionId })); removed++; }
+    // Retain only the current tiny manifest; archive versions keep their 7-day policy.
+    for (const version of versions) if (version.Key === MANIFEST_KEY && version.VersionId) await send(new DeleteObjectCommand({ Bucket: bucket, Key: MANIFEST_KEY, VersionId: version.VersionId }));
     log('database_backup_completed', { durationMs: Date.now() - started, sizeBytes: encrypted.length, checksumPrefix: checksum(encrypted).toString('hex').slice(0, 12), replay, removed });
+    }
 } catch {
     log('database_backup_failed', { stage, durationMs: Date.now() - started, isolatedBranchRetained: !!restoredBranch });
     process.exitCode = 1;

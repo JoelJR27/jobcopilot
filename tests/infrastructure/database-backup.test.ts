@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
 // Operational script, intentionally outside the application/domain.
-import { encryptDump, decryptDump, encryptionKey, expiredVersion, backupName, postgresEnvironment, MAX_DUMP_BYTES } from '../../scripts/database-backup-lib.mjs';
+import { encryptDump, decryptDump, encryptionKey, expiredVersion, backupName, postgresEnvironment, MAX_DUMP_BYTES, signManifest, verifyManifest, backupDue } from '../../scripts/database-backup-lib.mjs';
 
 describe('backup operacional', () => {
     const key = encryptionKey('ab'.repeat(32));
+    it('watchdog só renova em 23h; manifesto alterado nunca autoriza skip', () => {
+        const value = { key: 'database-backups/2026-10-12.pgdump.aes', versionId: 'synthetic-version', sha256: 'ab'.repeat(32), sizeBytes: 100, snapshotAt: '2026-10-12T00:00:00.000Z' };
+        const signed = signManifest(value, key);
+        expect(verifyManifest(signed, key)).toEqual(value);
+        expect(backupDue(value.snapshotAt, new Date('2026-10-12T22:59:59Z'))).toBe(false);
+        expect(backupDue(value.snapshotAt, new Date('2026-10-12T23:00:00Z'))).toBe(true);
+        expect(() => verifyManifest({ ...signed, snapshotAt: '2026-10-13T00:00:00.000Z' }, key)).toThrow();
+        expect(() => backupDue(value.snapshotAt, new Date('2026-10-11T00:00:00Z'))).toThrow();
+    });
     it('criptografa com autenticação e recupera custom format íntegro', () => {
         const dump = Buffer.from('PGDMPsynthetic');
         const encrypted = encryptDump(dump, key);
