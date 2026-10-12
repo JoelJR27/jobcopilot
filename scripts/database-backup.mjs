@@ -98,7 +98,7 @@ async function verifyRestore(dump) {
     target.hostname = target.hostname.replace(/-pooler(?=\.)/, '');
     // Schema-only clone is not empty: remove only its cloned public schema before restore.
     const isolated = new pg.Client(databaseOptions(target.href)); isolated.on('error', () => {});
-    try { await isolated.connect(); await isolated.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public'); } finally { await isolated.end(); }
+    try { await isolated.connect(); await isolated.query('DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public'); } finally { await isolated.end(); }
     stage = 'pg_restore';
     await postgresTool('pg_restore', target.href, dump);
     const restoredClient = new pg.Client(databaseOptions(target.href)); restoredClient.on('error', () => {});
